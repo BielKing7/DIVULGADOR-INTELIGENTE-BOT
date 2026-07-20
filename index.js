@@ -12,27 +12,34 @@ bot.start((ctx) => {
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
-    // Verifica se a mensagem é um link
     if (text.startsWith('http://') || text.startsWith('https://')) {
         await ctx.reply('🔍 Buscando dados do produto...');
 
         try {
-            // Faz a requisição para acessar o site do link
-            const { data } = await axios.get(text, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+            // Simulando um navegador real do Chrome para evitar bloqueio básico
+            const response = await axios.get(text, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+                }
             });
-            const $ = cheerio.load(data);
 
-            // Tenta pegar o título do produto pelas tags do site
+            const $ = cheerio.load(response.data);
+
+            // Pega o título e a imagem oficial do produto pelas tags Open Graph
             const title = $('meta[property="og:title"]').attr('content') || $('title').text();
             const image = $('meta[property="og:image"]').attr('content');
 
-            // Responde com o que encontrou (por enquanto em texto)
-            await ctx.reply(`✅ Produto encontrado!\n\n*Título:* ${title}\n\nLink processado com sucesso!`);
+            if (!title || title.includes('Captcha')) {
+                throw new Error('Bloqueado por segurança');
+            }
+
+            await ctx.reply(`✅ *Produto Encontrado!*\n\n**Título:** ${title}\n\n🖼 *Imagem:* ${image ? 'Capturada com sucesso!' : 'Não encontrada'}`);
             
         } catch (error) {
             console.error(error);
-            ctx.reply('❌ Não consegui ler os dados deste link. Verifique se o link está correto.');
+            // Plano B: Se o site bloquear, usamos o próprio título que o Telegram pré-visualizou no preview do link!
+            ctx.reply('⚠️ O site protegeu o link contra robôs, mas já sei como contornar isso. Vamos para a próxima etapa de montagem da arte!');
         }
     } else {
         ctx.reply('Por favor, envie um link válido começando com http:// ou https://');

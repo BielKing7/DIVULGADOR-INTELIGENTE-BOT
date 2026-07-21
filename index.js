@@ -4,32 +4,46 @@ require('dotenv').config();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start((ctx) => {
-    ctx.reply('Olá! Sou o seu Divulgador Inteligente. Envie um link de afiliado da Magalu, Shopee ou Amazon para gerar seu story.');
+    ctx.reply('🤖 *Divulgador Inteligente Ativo!*\n\nEnvie o seu link de afiliado da Magalu, Shopee, Amazon ou Mercado Livre para gerar o seu Story personalizado.');
 });
 
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
+    // Verifica se é um link válido
     if (text.startsWith('http://') || text.startsWith('https://')) {
-        await ctx.reply('🔍 Buscando dados do produto e gerando arte...');
+        
+        // 1. Mensagem idêntica ao bot de referência
+        const msgBusca = await ctx.reply('🔍 Buscando dados do produto...');
 
-        // Simulando o tempo de processamento da arte (como no bot original)
+        // Simula o tempo de requisição na API do e-commerce e renderização da arte
         setTimeout(async () => {
-            // Mensagem formatada igual ao bot da sua referência
-            const legendaStory = `✨ *Story gerado com sucesso!* ✨\n\n🔗 *Link de afiliado:* ${text}`;
-
-            // Aqui enviamos uma imagem de exemplo simulando o banner gerado e o link logo abaixo
-            await ctx.replyWithPhoto(
-                { source: Buffer.from(iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') }, 
-                { 
-                    caption: legendaStory,
-                    parse_mode: 'Markdown'
-                }
+            await ctx.telegram.editMessageText(
+                ctx.chat.id,
+                msgBusca.message_id,
+                undefined,
+                '✨ Pronto! 🤩 Vou criar a arte...'
             );
-        }, 2000);
+        }, 1500);
+
+        setTimeout(async () => {
+            // Apaga a mensagem anterior para limpar o chat
+            await ctx.telegram.deleteMessage(ctx.chat.id, msgBusca.message_id).catch(() => {});
+
+            // Texto da legenda idêntico ao modelo que você mandou nos prints
+            const legendaFinal = `📱 *Story gerado* ✨🖼️✨\n\n🔗 *Link:* ${text}`;
+
+            // Envia a imagem de preview simulando o banner gerado pelo seu bot
+            // (Aqui no futuro vamos conectar a imagem gerada dinamicamente pelo template)
+            await ctx.reply(legendaFinal, {
+                parse_mode: 'Markdown',
+                disable_web_page_preview: false
+            });
+
+        }, 3500);
 
     } else {
-        ctx.reply('Por favor, envie um link válido começando com http:// ou https://');
+        ctx.reply('⚠️ Por favor, envie apenas links de afiliados válidos começando com http:// ou https://');
     }
 });
 

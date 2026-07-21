@@ -12,7 +12,7 @@ http.createServer((req, res) => {
     console.log(`Servidor HTTP ouvindo na porta ${PORT}`);
 });
 
-// Puxa o token do Telegram e a chave da ZenRows
+// Puxa o token do Telegram das variáveis de ambiente do Render
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
 const ZENROWS_API_KEY = '3fc99dc10dee4f24a6c14f4d8bb3ab4954ec0fd';
 
@@ -30,16 +30,26 @@ async function processarLinkAfiliado(linkAfiliado) {
                 'url': linkAfiliado,
                 'apikey': ZENROWS_API_KEY,
                 'mode': 'auto',
-                'js_render': 'true',       // Carrega o JavaScript da página
-                'premium_proxy': 'true'    // Evita bloqueios e captchas
+                'js_render': 'true',          // Carrega o JavaScript da página
+                'premium_proxy': 'true',      // Usa proxies residenciais/premium
+                'antibot': 'true',            // Bypassa telas de CAPTCHA e antibot (Magalu/Shopee)
+                'follow_redirects': 'true'    // Segue o link encurtado até o produto final
             }
         });
 
         const $ = cheerio.load(response.data);
 
-        // Pega os metadados universais da página
+        // Tenta capturar a imagem por qualquer meta tag Open Graph ou Twitter Card disponível
+        let imagem = $('meta[property="og:image"]').attr('content') || 
+                     $('meta[name="twitter:image"]').attr('content') || 
+                     $('link[rel="image_src"]').attr('content');
+
         let titulo = $('meta[property="og:title"]').attr('content') || $('title').text();
-        let imagem = $('meta[property="og:image"]').attr('content');
+
+        // Se ainda não achou, pega a primeira imagem relevante da página
+        if (!imagem) {
+            imagem = $('img').first().attr('src');
+        }
 
         // Tratamento caso a imagem venha sem protocolo
         if (imagem && !imagem.startsWith('http')) {

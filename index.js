@@ -1,8 +1,18 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const http = require('http');
 
-// Puxa o token diretamente das variáveis de ambiente do Render
+// Cria um servidor HTTP básico para atender à exigência de porta do Render
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot de Afiliados rodando com sucesso!\n');
+}).listen(PORT, () => {
+    console.log(`Servidor HTTP ouvindo na porta ${PORT}`);
+});
+
+// Puxa o token do Telegram e a chave da ZenRows
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
 const ZENROWS_API_KEY = '3fc99dc10dee4f24a6c14f4d8bb3ab4954ec0fd';
 

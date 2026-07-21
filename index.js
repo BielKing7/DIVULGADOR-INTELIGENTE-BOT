@@ -1,76 +1,79 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const Jimp = require('jimp');
-require('dotenv').config();
+const cheerio = require('cheerio');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// Puxa o token diretamente das variáveis de ambiente do Render
+const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
+const ZENROWS_API_KEY = '3fc99dc10dee4f24a6c14f4d8bb3ab4954ec0fd';
 
-bot.start((ctx) => {
-    ctx.reply('🤖 *Divulgador Inteligente Ativo!*\n\nEnvie o seu link de afiliado para gerar a arte.');
-});
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
-bot.on('text', async (ctx) => {
-    const text = ctx.message.text;
+// Função universal para extrair dados de qualquer loja (Shopee, Magalu, Mercado Livre, Shein, etc.)
+async function processarLinkAfiliado(linkAfiliado) {
+    try {
+        console.log(`Buscando dados para o link: ${linkAfiliado}`);
 
-    if (text.startsWith('http://') || text.startsWith('https://')) {
-        const msgBusca = await ctx.reply('🔍 Consultando API de e-commerce e obtendo dados...');
-
-        try {
-            // Usando uma API especializada em extração limpa de páginas de varejo
-            const apiRes = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(text)}&palette=true&insights=true`);
-            const data = apiRes.data.data;
-            
-            let imageUrl = data.image?.url;
-            const productTitle = data.title || 'Oferta Imperdível';
-
-            // Tratativa para garantir que não pegue logo da loja e sim o produto
-            if (!imageUrl || imageUrl.includes('logo') || imageUrl.includes('icon') || imageUrl.includes('favicon')) {
-                if (data.logo?.url) {
-                    imageUrl = data.logo.url;
-                }
+        const response = await axios({
+            url: 'https://api.zenrows.com/v1/',
+            method: 'GET',
+            params: {
+                'url': linkAfiliado,
+                'apikey': ZENROWS_API_KEY,
+                'mode': 'auto',
+                'js_render': 'true',       // Carrega o JavaScript da página
+                'premium_proxy': 'true'    // Evita bloqueios e captchas
             }
+        });
 
-            if (!imageUrl) throw new Error('Imagem do produto não encontrada');
+        const $ = cheerio.load(response.data);
 
-            await ctx.telegram.editMessageText(ctx.chat.id, msgBusca.message_id, undefined, '🎨 Renderizando o template personalizado...');
+        // Pega os metadados universais da página
+        let titulo = $('meta[property="og:title"]').attr('content') || $('title').text();
+        let imagem = $('meta[property="og:image"]').attr('content');
 
-            // Cria o fundo do Story (1080x1920)
-            const story = new Jimp(1080, 1920, 0x111111ff); 
-
-            // Card branco central para o produto
-            const cardBg = new Jimp(900, 1100, 0xffffffff); 
-            story.composite(cardBg, 90, 350);
-
-            // Carrega e redimensiona a foto exata do produto
-            const productImg = await Jimp.read(imageUrl);
-            productImg.scaleToFit(750, 600); 
-            story.composite(productImg, 165, 420);
-
-            // Gera o buffer da arte final
-            const buffer = await story.getBufferAsync(Jimp.MIME_JPEG);
-
-            await ctx.telegram.deleteMessage(ctx.chat.id, msgBusca.message_id).catch(() => {});
-
-            // Envia a imagem pronta com a legenda formatada e o link de afiliado
-            const legendaFinal = `✨ *${productTitle}* ✨\n\n👇 *Garanta o seu com desconto aqui:* 👇\n${text}`;
-
-            await ctx.replyWithPhoto({ source: buffer }, {
-                caption: legendaFinal,
-                parse_mode: 'Markdown'
-            });
-
-        } catch (error) {
-            console.error(error);
-            await ctx.telegram.editMessageText(ctx.chat.id, msgBusca.message_id, undefined, '⚠️ Não foi possível carregar a imagem do produto, mas segue o link direto:');
-            await ctx.reply(text);
+        // Tratamento caso a imagem venha sem protocolo
+        if (imagem && !imagem.startsWith('http')) {
+            imagem = 'https:' + imagem;
         }
 
-    } else {
-        ctx.reply('⚠️ Por favor, envie um link válido começando com http:// ou https://');
+        return {
+            sucesso: true,
+            titulo: titulo ? titulo.trim() : 'Achadinho Imperdível',
+            imagem: imagem || ''
+        };
+
+    } catch (error) {
+        console.error('Erro ao processar o link:', error.message);
+        return { sucesso: false };
+    }
+}
+
+// Ouve quando você mandar um link no chat do bot
+bot.on('text', async (ctx) => {
+    const textoMensagem = ctx.message.text;
+
+    // Verifica se a mensagem parece ser um link
+    if (textoMensagem.startsWith('http://') || textoMensagem.startsWith('https://')) {
+        await ctx.reply('⏳ Processando link e buscando dados do produto sem bloqueios...');
+
+        const dados = await processarLinkAfiliado(textoMensagem);
+
+        if (dados.sucesso && dados.imagem) {
+            // Envia a foto oficial do produto e o título extraído direto para o chat
+            await ctx.replyWithPhoto(dados.imagem, {
+                caption: `🛒 *${dados.titulo}*\n\n🔗 *Link:* ${textoMensagem}`,
+                parse_mode: 'Markdown'
+            });
+        } else {
+            await ctx.reply('❌ Não consegui puxar a imagem deste link. Tente novamente.');
+        }
     }
 });
 
+// Inicia o bot
 bot.launch();
+console.log('🤖 Bot rodando no Render e pronto para testar os links!');
 
+// Habilita o encerramento gracioso do bot
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

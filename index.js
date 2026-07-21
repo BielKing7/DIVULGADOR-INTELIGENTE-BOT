@@ -1,68 +1,73 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const Jimp = require('jimp');
 require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.start((ctx) => {
-    ctx.reply('🤖 *Divulgador Inteligente Ativo!*\n\nEnvie o seu link de afiliado para gerar a arte do Story com o modelo padrão.');
+    ctx.reply('🤖 *Divulgador Inteligente Ativo!*\n\nEnvie o seu link de afiliado para gerar a arte personalizada para o Story.');
 });
 
 bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
+    // 1. Validação se é um link válido
     if (text.startsWith('http://') || text.startsWith('https://')) {
-        const msgBusca = await ctx.reply('🔍 Buscando dados do produto e montando a arte...');
+        const msgBusca = await ctx.reply('🔍 Processando link e extraindo dados...');
 
         try {
-            // 1. Coleta os dados do produto (Foto e Título)
-            const response = await axios.get(text, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
-            });
-            const $ = cheerio.load(response.data);
-            const imageUrl = $('meta[property="og:image"]').attr('content');
-            const productTitle = $('meta[property="og:title"]').attr('content') || 'Oferta Imperdível';
+            // 2. Extração de Metadados (Web Scraping inteligente via API gratuita)
+            const apiRes = await axios.get(`https://api.microlink.io?url=${encodeURIComponent(text)}`);
+            const imageUrl = apiRes.data.data.image?.url;
+            const productTitle = apiRes.data.data.title || 'Oferta Imperdível';
 
-            if (!imageUrl) throw new Error('Imagem não encontrada');
+            if (!imageUrl) throw new Error('Não foi possível extrair a imagem do produto.');
 
-            // 2. Cria a base do Story (Tamanho ideal: 1080x1920 pixels)
-            // Aqui você pode mudar a cor de fundo alterando o código hexadecimal (Ex: 0x1a1a2eff para azul escuro, etc)
-            const story = new Jimp(1080, 1920, 0x111111ff); // Fundo escuro base
+            await ctx.telegram.editMessageText(
+                ctx.chat.id, 
+                msgBusca.message_id, 
+                undefined, 
+                '🎨 Montando a arte no template...'
+            );
 
-            // Desenha a faixa/moldura central do template (Ex: Cor de fundo do card customizada)
-            const cardBg = new Jimp(900, 1100, 0xffffffff); // Fundo branco do card do produto
+            // 3. Renderização Visual (Criação do Story 1080x1920)
+            // Fundo padrão da arte (Ex: Cor sólida ou base escura profissional)
+            const story = new Jimp(1080, 1920, 0x111111ff); 
+
+            // Caixa/Moldura branca central onde o produto vai encaixar
+            const cardBg = new Jimp(900, 1100, 0xffffffff); 
             story.composite(cardBg, 90, 350);
 
-            // Carrega a foto do produto direto da URL
+            // Carrega e redimensiona a foto do produto tirada do link
             const productImg = await Jimp.read(imageUrl);
-            productImg.scaleToFit(750, 600); // Redimensiona para caber no espaço correto
+            productImg.scaleToFit(750, 600); 
             
-            // Cola a foto do produto dentro do card
+            // Cola a foto do produto nas coordenadas exatas (X e Y) dentro do card
             story.composite(productImg, 165, 420);
 
-            // 3. Adiciona a caixa do botão "COMPRE AQUI" na parte inferior
-            const buttonBg = new Jimp(900, 140, 0x7b2cbf00); // Cor do botão (Roxo personalizado)
-            // (Opcional: podemos desenhar formas ou textos direto aqui)
-
-            // Salva a imagem temporariamente na memória do bot
+            // Converte a arte finalizada para buffer de imagem JPEG
             const buffer = await story.getBufferAsync(Jimp.MIME_JPEG);
 
-            // Apaga a mensagem de status
+            // Apaga a mensagem de status para manter o chat limpo
             await ctx.telegram.deleteMessage(ctx.chat.id, msgBusca.message_id).catch(() => {});
 
-            // 4. Envia a arte pronta com o link de afiliado logo abaixo
-            const caption = `✨ *${productTitle}* ✨\n\n👇 *Garanta o seu com desconto aqui:* 👇\n${text}`;
+            // 4. Envio Automatizado (Posta a imagem gerada com o título e o link de afiliado)
+            const legendaFinal = `✨ *${productTitle}* ✨\n\n👇 *Garanta o seu com desconto aqui:* 👇\n${text}`;
 
             await ctx.replyWithPhoto({ source: buffer }, {
-                caption: caption,
+                caption: legendaFinal,
                 parse_mode: 'Markdown'
             });
 
         } catch (error) {
             console.error(error);
-            await ctx.telegram.editMessageText(ctx.chat.id, msgBusca.message_id, undefined, '⚠️ Não foi possível gerar a arte automática para este link, mas segue o link direto:');
+            await ctx.telegram.editMessageText(
+                ctx.chat.id, 
+                msgBusca.message_id, 
+                undefined, 
+                '⚠️ Ocorreu um erro ao gerar a arte automática, mas segue o link direto para divulgação:'
+            );
             await ctx.reply(text);
         }
 

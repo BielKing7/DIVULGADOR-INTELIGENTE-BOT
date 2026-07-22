@@ -1,0 +1,20 @@
+{
+  "name": "divulgador-inteligente-bot",
+  "version": "1.0.0",
+  "description": "Bot do Telegram para afiliados estilo Guru das Promoções",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "canvas": "^2.11.2",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

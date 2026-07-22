@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# Puxa o token usando o nome exato configurado no Render
+# Puxa o token com segurança direto do Render (variável TOKEN_BOT)
 TOKEN = os.environ.get("TOKEN_BOT")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -5,7 +5,8 @@ from PIL import Image, ImageDraw
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# Token inserido diretamente para garantir o funcionamento imediato
+TOKEN = "8742760614:AAG9uZSvKiK9o6mVbL1C_v3s79i6cjbR4L8"
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text

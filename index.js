@@ -3,10 +3,20 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const nodemailer = require('nodemailer');
 const { gerarArtePromocao } = require('./canvas');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
+
+// Configuração do Nodemailer usando o seu Gmail e a Senha de Aplicativo do Render
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // Servidor Express para manter o Render acordado
 const app = express();
@@ -51,21 +61,40 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Passo 1: E-mail
+    // Passo 1: E-mail (Envia o código real para o Gmail do usuário)
     if (estado.step === 'AGUARDANDO_EMAIL') {
         if (!text.includes('@')) {
             bot.sendMessage(chatId, `❌ E-mail inválido. Por favor, digite um e-mail válido.`);
             return;
         }
-        estado.email = text;
+        estado.email = text.trim();
         estado.codigoGerado = Math.floor(10000 + Math.random() * 90000).toString();
         estado.step = 'AGUARDANDO_CODIGO';
 
-        console.log(`[DEBUG] Código para ${estado.email}: ${estado.codigoGerado}`);
+        try {
+            // Dispara o e-mail de verdade para a caixa de entrada do usuário
+            await transporter.sendMail({
+                from: '"Divulgador Inteligente" <' + process.env.EMAIL_USER + '>',
+                to: estado.email,
+                subject: 'Seu Código de Ativação - Divulgador Inteligente',
+                html: `
+                    <div style="font-family: Arial, sans-serif; color: #333;">
+                        <h2>Divulgador Inteligente</h2>
+                        <p>Olá! Você solicitou o seu código de ativação.</p>
+                        <p>Seu código é: <strong style="font-size: 20px; color: #007bff;">${estado.codigoGerado}</strong></p>
+                        <p>Este código é válido por 15 minutos. Se você não solicitou isso, ignore esta mensagem.</p>
+                    </div>
+                `
+            });
 
-        bot.sendMessage(chatId, 
-            `✅ Digite o código de 5 dígitos enviado para o e-mail ${estado.email}.\nEste código é válido por 15 minutos! Se não o recebeu, confira sua caixa de spam.`
-        );
+            bot.sendMessage(chatId, 
+                `✅ Digite o código de 5 dígitos enviado para o e-mail ${estado.email}.\nEste código é válido por 15 minutos! Se não o recebeu, confira sua caixa de spam.`
+            );
+        } catch (error) {
+            console.error("Erro ao enviar e-mail via Gmail:", error);
+            bot.sendMessage(chatId, `❌ Erro ao enviar o e-mail de verificação. Verifique se o e-mail está correto.`);
+            estado.step = 'AGUARDANDO_EMAIL';
+        }
         return;
     }
 

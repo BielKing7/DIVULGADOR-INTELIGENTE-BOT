@@ -14,7 +14,9 @@ const transporter = nodemailer.createTransport({
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-    }
+    },
+    socketTimeout: 10000,
+    connectionTimeout: 10000
 });
 
 const app = express();
@@ -63,7 +65,8 @@ bot.on('message', async (msg) => {
         }
         estado.email = text.trim();
         estado.codigoGerado = Math.floor(10000 + Math.random() * 90000).toString();
-        estado.step = 'AGUARDANDO_CODIGO';
+        
+        bot.sendMessage(chatId, `⏳ Tentando enviar o e-mail, aguarde um instante...`);
 
         try {
             await transporter.sendMail({
@@ -75,17 +78,19 @@ bot.on('message', async (msg) => {
                         <h2>Divulgador Inteligente</h2>
                         <p>Olá! Você solicitou o seu código de ativação.</p>
                         <p>Seu código é: <strong style="font-size: 20px; color: #007bff;">${estado.codigoGerado}</strong></p>
-                        <p>Este código é válido por 15 minutos. Se você não solicitou isso, ignore esta mensagem.</p>
+                        <p>Este código é válido por 15 minutos.</p>
                     </div>
                 `
             });
 
+            estado.step = 'AGUARDANDO_CODIGO';
             bot.sendMessage(chatId, 
-                `✅ Digite o código de 5 dígitos enviado para o e-mail ${estado.email}.\nEste código é válido por 15 minutos! Se não o recebeu, confira sua caixa de spam.`
+                `✅ Código enviado com sucesso para ${estado.email}!\nDigite o código de 5 dígitos recebido:`
             );
         } catch (error) {
-            console.error("ERRO COMPLETO DO GMAIL:", error);
-            bot.sendMessage(chatId, `❌ Erro ao enviar o e-mail. Veja o log no Render.`);
+            console.error("ERRO DETALHADO:", error);
+            // O bot vai mandar o erro exato do Google direto na tela do chat para sabermos o motivo
+            bot.sendMessage(chatId, `❌ Erro do Google ao enviar:\n\n${error.message}`);
             estado.step = 'AGUARDANDO_EMAIL';
         }
         return;
@@ -141,7 +146,7 @@ bot.on('message', async (msg) => {
                 console.log("Aviso: Usando dados padrão para o produto.");
             }
 
-            const bufferArte = `gerarArtePromocao`({
+            const bufferArte = gerarArtePromocao({
                 title: tituloProduto,
                 precoAtual: precoAtual,
                 precoAntigo: precoAntigo,

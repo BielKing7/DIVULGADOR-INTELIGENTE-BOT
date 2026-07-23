@@ -3,6 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { MailtrapClient } = require("mailtrap");
 const { gerarArtePromocao } = require('./canvas');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -12,6 +13,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Divulgador Inteligente Bot está online! 🚀'));
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+
+// Inicializando o cliente oficial do Mailtrap
+const mailtrapClient = new MailtrapClient({ token: process.env.MAILTRAP_API_KEY });
 
 const usuariosState = {};
 
@@ -58,8 +62,8 @@ bot.on('message', async (msg) => {
         bot.sendMessage(chatId, `⏳ Enviando o código via Mailtrap, aguarde um instante...`);
 
         try {
-            // Envio utilizando a API HTTP do Mailtrap com o novo e-mail de remetente
-            await axios.post('https://send.api.mailtrap.io/api/send', {
+            // Envio utilizando a biblioteca oficial do Mailtrap
+            await mailtrapClient.send({
                 from: { email: "botdivulgadorinteligente@gmail.com", name: "Divulgador Inteligente" },
                 to: [{ email: estado.email }],
                 subject: 'Seu Código de Ativação - Divulgador Inteligente',
@@ -71,11 +75,6 @@ bot.on('message', async (msg) => {
                         <p>Este código é válido por 15 minutos.</p>
                     </div>
                 `
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${process.env.MAILTRAP_API_KEY}`,
-                    'Content-Type': 'application/json'
-                }
             });
 
             estado.step = 'AGUARDANDO_CODIGO';
@@ -83,9 +82,8 @@ bot.on('message', async (msg) => {
                 `✅ Código enviado com sucesso para ${estado.email}!\nDigite o código de 5 dígitos recebido:`
             );
         } catch (error) {
-            console.error("ERRO API MAILTRAP:", error.response?.data || error.message);
-            const detalheErro = error.response?.data?.message || error.message;
-            bot.sendMessage(chatId, `❌ Erro ao enviar e-mail pelo Mailtrap:\n\n${detalheErro}`);
+            console.error("ERRO MAILTRAP SDK:", error);
+            bot.sendMessage(chatId, `❌ Erro ao enviar e-mail pelo Mailtrap:\n\n${error.message || error}`);
             estado.step = 'AGUARDANDO_EMAIL';
         }
         return;

@@ -3,8 +3,20 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { MailtrapClient } = require("mailtrap");
 const { gerarArtePromocao } = require('./canvas');
+
+// --- CONFIGURAÇÃO DO FIREBASE ADMIN (VIA VARIÁVEL DE AMBIENTE) ---
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+
+// Lê o JSON direto da variável de ambiente configurada no Render
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+initializeApp({
+  credential: cert(serviceAccount)
+});
+const db = getFirestore();
+// -----------------------------------------------------------------
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
@@ -14,17 +26,28 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Divulgador Inteligente Bot está online! 🚀'));
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
-// Inicializando o cliente oficial do Mailtrap
-const mailtrapClient = new MailtrapClient({ token: process.env.MAILTRAP_API_KEY });
-
 const usuariosState = {};
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    usuariosState[chatId] = { step: 'AGUARDANDO_EMAIL' };
+    
+    try {
+        // Verifica se o chat do Telegram já está cadastrado e autenticado
+        const userRef = db.collection('usuarios').doc(String(chatId));
+        const doc = await userRef.get();
 
+        if (doc.exists && doc.data().autenticado) {
+            usuariosState[chatId] = { step: 'AUTENTICADO' };
+            bot.sendMessage(chatId, `🎉 Você já está cadastrado e autenticado!\n\nAtive o modo /poststory para começar a criar suas publicações! 🚀`);
+            return;
+        }
+    } catch (error) {
+        console.error("Erro ao consultar Firestore:", error);
+    }
+
+    usuariosState[chatId] = { step: 'AGUARDANDO_EMAIL' };
     bot.sendMessage(chatId, 
-        `Bem-vindo ao 🤖 Divulgador Inteligente Bot 🛍️! Configure agora seu Bot e inicie a divulgação de suas ofertas!!!\n\nPor favor, forneça seu e-mail para dar início ao seu cadastro na plataforma. 👉`
+        `Bem-vindo ao 🤖 Divulgador Inteligente Bot 🛍️! Configure agora seu Bot e inicie a divulgação de suas ofertas!!!\n\nPor favor, informe o seu e-mail para verificarmos o cadastro. 👉`
     );
 });
 
@@ -56,35 +79,44 @@ bot.on('message', async (msg) => {
             bot.sendMessage(chatId, `❌ E-mail inválido. Por favor, digite um e-mail válido.`);
             return;
         }
-        estado.email = text.trim();
-        estado.codigoGerado = Math.floor(10000 + Math.random() * 90000).toString();
-        
-        bot.sendMessage(chatId, `⏳ Enviando o código via Mailtrap, aguarde um instante...`);
+
+        const emailInformado = text.trim();
 
         try {
-            // Envio utilizando a biblioteca oficial do Mailtrap
-            await mailtrapClient.send({
-                from: { email: "botdivulgadorinteligente@gmail.com", name: "Divulgador Inteligente" },
-                to: [{ email: estado.email }],
-                subject: 'Seu Código de Ativação - Divulgador Inteligente',
-                html: `
-                    <div style="font-family: Arial, sans-serif; color: #333;">
-                        <h2>Divulgador Inteligente</h2>
-                        <p>Olá! Você solicitou o seu código de ativação.</p>
-                        <p>Seu código é: <strong style="font-size: 20px; color: #007bff;">${estado.codigoGerado}</strong></p>
-                        <p>Este código é válido por 15 minutos.</p>
-                    </div>
-                `
-            });
+            // Procura no Firestore se já existe algum usuário cadastrado com esse e-mail
+            const snapshot = await db.collection('usuarios').where('email', '==', emailInformado).get();
 
+            if (!snapshot.empty) {
+                // O e-mail JÁ EXISTE no banco! Vinculamos este chatId e liberamos o acesso direto
+                const docUser = snapshot.docs[0];
+                const dadosUser = docUser.data();
+
+                await db.collection('usuarios').doc(String(chatId)).set({
+                    chatId: chatId,
+                    email: emailInformado,
+                    nome: dadosUser.nome || 'Usuário',
+                    autenticado: true,
+                    criadoEm: dadosUser.criadoEm || new Date().toISOString()
+                });
+
+                usuariosState[chatId] = { step: 'AUTENTICADO' };
+                bot.sendMessage(chatId, `✅ E-mail já cadastrado encontrado no banco!\n\nAcesso liberado com sucesso! 🎉\n\nAtive o modo /poststory para começar a criar suas publicações! 🚀`);
+                return;
+            }
+
+            // Se o e-mail NÃO EXISTE, segue o fluxo para cadastrar novo usuário gerando o código
+            estado.email = emailInformado;
+            estado.codigoGerado = Math.floor(10000 + Math.random() * 90000).toString();
             estado.step = 'AGUARDANDO_CODIGO';
+
             bot.sendMessage(chatId, 
-                `✅ Código enviado com sucesso para ${estado.email}!\nDigite o código de 5 dígitos recebido:`
+                `⚠️ E-mail não encontrado no sistema. Vamos realizar seu cadastro!\n\nSeu código de verificação temporário é: *${estado.codigoGerado}*\n\nDigite esse código de 5 dígitos para continuar:`,
+                { parse_mode: 'Markdown' }
             );
+
         } catch (error) {
-            console.error("ERRO MAILTRAP SDK:", error);
-            bot.sendMessage(chatId, `❌ Erro ao enviar e-mail pelo Mailtrap:\n\n${error.message || error}`);
-            estado.step = 'AGUARDANDO_EMAIL';
+            console.error("Erro ao verificar e-mail no Firestore:", error);
+            bot.sendMessage(chatId, `❌ Ocorreu um erro ao consultar o banco de dados. Tente novamente enviando /start.`);
         }
         return;
     }
@@ -95,16 +127,32 @@ bot.on('message', async (msg) => {
             return;
         }
         estado.step = 'AGUARDANDO_NOME';
-        bot.sendMessage(chatId, `✅ Email validado com sucesso! Por favor, informe seu nome.`);
+        bot.sendMessage(chatId, `✅ Código validado! Por favor, informe seu nome para finalizar o cadastro:`);
         return;
     }
 
     if (estado.step === 'AGUARDANDO_NOME') {
         estado.nome = text.trim();
-        estado.step = 'AUTENTICADO';
-        bot.sendMessage(chatId, 
-            `✅ Cadastro realizado com sucesso! Agora você pode começar a usar o bot. 😊\n\nAtive o modo /poststory para começar a criar suas publicações! 🚀`
-        );
+        
+        try {
+            // Salva o novo usuário no Firestore
+            await db.collection('usuarios').doc(String(chatId)).set({
+                chatId: chatId,
+                email: estado.email,
+                nome: estado.nome,
+                autenticado: true,
+                criadoEm: new Date().toISOString()
+            });
+
+            usuariosState[chatId] = { step: 'AUTENTICADO' };
+            bot.sendMessage(chatId, 
+                `✅ Cadastro concluído e salvo no Firebase com sucesso! 🚀\n\nAtive o modo /poststory para começar a criar suas publicações! 😊`
+            );
+        } catch (error) {
+            console.error("Erro ao salvar no Firestore:", error);
+            bot.sendMessage(chatId, `❌ Ocorreu um erro ao salvar seus dados no banco. Tente novamente enviando /start.`);
+            usuariosState[chatId] = null;
+        }
         return;
     }
 

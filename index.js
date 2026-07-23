@@ -3,21 +3,10 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const nodemailer = require('nodemailer');
 const { gerarArtePromocao } = require('./canvas');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
-
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    },
-    socketTimeout: 10000,
-    connectionTimeout: 10000
-});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,12 +55,13 @@ bot.on('message', async (msg) => {
         estado.email = text.trim();
         estado.codigoGerado = Math.floor(10000 + Math.random() * 90000).toString();
         
-        bot.sendMessage(chatId, `⏳ Tentando enviar o e-mail, aguarde um instante...`);
+        bot.sendMessage(chatId, `⏳ Enviando o código via Mailtrap, aguarde um instante...`);
 
         try {
-            await transporter.sendMail({
-                from: '"Divulgador Inteligente" <' + process.env.EMAIL_USER + '>',
-                to: estado.email,
+            // Envio utilizando a API HTTP do Mailtrap com o novo e-mail de remetente
+            await axios.post('https://send.api.mailtrap.io/api/send', {
+                from: { email: "botdivulgadorinteligente@gmail.com", name: "Divulgador Inteligente" },
+                to: [{ email: estado.email }],
                 subject: 'Seu Código de Ativação - Divulgador Inteligente',
                 html: `
                     <div style="font-family: Arial, sans-serif; color: #333;">
@@ -81,6 +71,11 @@ bot.on('message', async (msg) => {
                         <p>Este código é válido por 15 minutos.</p>
                     </div>
                 `
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${process.env.MAILTRAP_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
             estado.step = 'AGUARDANDO_CODIGO';
@@ -88,9 +83,9 @@ bot.on('message', async (msg) => {
                 `✅ Código enviado com sucesso para ${estado.email}!\nDigite o código de 5 dígitos recebido:`
             );
         } catch (error) {
-            console.error("ERRO DETALHADO:", error);
-            // O bot vai mandar o erro exato do Google direto na tela do chat para sabermos o motivo
-            bot.sendMessage(chatId, `❌ Erro do Google ao enviar:\n\n${error.message}`);
+            console.error("ERRO API MAILTRAP:", error.response?.data || error.message);
+            const detalheErro = error.response?.data?.message || error.message;
+            bot.sendMessage(chatId, `❌ Erro ao enviar e-mail pelo Mailtrap:\n\n${detalheErro}`);
             estado.step = 'AGUARDANDO_EMAIL';
         }
         return;

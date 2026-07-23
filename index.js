@@ -9,7 +9,6 @@ const { gerarArtePromocao } = require('./canvas');
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
-// Configuração do Nodemailer usando o seu Gmail e a Senha de Aplicativo do Render
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -18,7 +17,6 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Servidor Express para manter o Render acordado
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Divulgador Inteligente Bot está online! 🚀'));
@@ -26,7 +24,6 @@ app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
 const usuariosState = {};
 
-// Comando /start
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'AGUARDANDO_EMAIL' };
@@ -36,7 +33,6 @@ bot.onText(/\/start/, (msg) => {
     );
 });
 
-// Comando /poststory
 bot.onText(/\/poststory/, (msg) => {
     const chatId = msg.chat.id;
     if (!usuariosState[chatId] || usuariosState[chatId].step !== 'AUTENTICADO') {
@@ -48,7 +44,6 @@ bot.onText(/\/poststory/, (msg) => {
     bot.sendMessage(chatId, `🔄 Ativando o modo combinado de Post e Story! 📝📱✨\n\nAgora envie o seu link de afiliado para gerarmos a publicação.`);
 });
 
-// Manipulador de mensagens gerais
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
@@ -61,7 +56,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Passo 1: E-mail (Envia o código real para o Gmail do usuário)
     if (estado.step === 'AGUARDANDO_EMAIL') {
         if (!text.includes('@')) {
             bot.sendMessage(chatId, `❌ E-mail inválido. Por favor, digite um e-mail válido.`);
@@ -72,7 +66,6 @@ bot.on('message', async (msg) => {
         estado.step = 'AGUARDANDO_CODIGO';
 
         try {
-            // Dispara o e-mail de verdade para a caixa de entrada do usuário
             await transporter.sendMail({
                 from: '"Divulgador Inteligente" <' + process.env.EMAIL_USER + '>',
                 to: estado.email,
@@ -91,14 +84,13 @@ bot.on('message', async (msg) => {
                 `✅ Digite o código de 5 dígitos enviado para o e-mail ${estado.email}.\nEste código é válido por 15 minutos! Se não o recebeu, confira sua caixa de spam.`
             );
         } catch (error) {
-            console.error("Erro ao enviar e-mail via Gmail:", error);
-            bot.sendMessage(chatId, `❌ Erro ao enviar o e-mail de verificação. Verifique se o e-mail está correto.`);
+            console.error("ERRO COMPLETO DO GMAIL:", error);
+            bot.sendMessage(chatId, `❌ Erro ao enviar o e-mail. Veja o log no Render.`);
             estado.step = 'AGUARDANDO_EMAIL';
         }
         return;
     }
 
-    // Passo 2: Código de 5 dígitos
     if (estado.step === 'AGUARDANDO_CODIGO') {
         if (text.trim() !== estado.codigoGerado) {
             bot.sendMessage(chatId, `❌ Código incorreto. Tente novamente.`);
@@ -109,7 +101,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Passo 3: Nome
     if (estado.step === 'AGUARDANDO_NOME') {
         estado.nome = text.trim();
         estado.step = 'AUTENTICADO';
@@ -119,7 +110,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Passo 4: Processando Link de Afiliado
     if (estado.step === 'POST_STORY') {
         if (!text.startsWith('http')) {
             bot.sendMessage(chatId, `⚠️ Por favor, envie um link válido.`);
@@ -151,7 +141,7 @@ bot.on('message', async (msg) => {
                 console.log("Aviso: Usando dados padrão para o produto.");
             }
 
-            const bufferArte = await gerarArtePromocao({
+            const bufferArte = `gerarArtePromocao`({
                 title: tituloProduto,
                 precoAtual: precoAtual,
                 precoAntigo: precoAntigo,

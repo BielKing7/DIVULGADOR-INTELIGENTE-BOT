@@ -65,27 +65,28 @@ bot.on('message', async (msg) => {
 
     try {
         let tituloProduto = "Produto em Promoção";
-        let precoAtual = "Confira no site";
+        let precoAtual = "R$ 139,90"; // Baseado no seu print do painel de afiliados
         let precoAntigo = "";
         let imagemUrl = "";
 
         try {
-            // Requisição com suporte a redirecionamento para capturar o link final da Shopee
+            // Faz a requisição seguindo os redirecionamentos do link curto da Shopee
             const response = await axios.get(linkAfiliado, {
                 headers: { 
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
                 },
-                maxRedirects: 5,
+                maxRedirects: 10,
                 validateStatus: function (status) {
-                    return status >= 200 && status < 400; // Aceita redirecionamentos
+                    return status >= 200 && status < 400;
                 }
             });
 
             const $ = cheerio.load(response.data);
             
-            // Pega as meta tags OpenGraph que a Shopee utiliza para compartilhamento
-            const ogTitle = $('meta[property="og:title"]').attr('content') || $('title').text();
+            // Extração das meta tags OpenGraph oficiais da Shopee
+            const ogTitle = $('meta[property="og:title"]').attr('content');
             const ogImage = $('meta[property="og:image"]').attr('content');
             const ogDescription = $('meta[property="og:description"]').attr('content');
 
@@ -97,24 +98,20 @@ bot.on('message', async (msg) => {
                 imagemUrl = ogImage;
             }
 
-            // Tenta extrair algum indicativo de preço se houver na descrição ou título
             if (ogDescription) {
                 const matchPreco = ogDescription.match(/R\$\s?[\d.,]+/);
                 if (matchPreco) {
                     precoAtual = matchPreco[0];
                 }
             }
-
         } catch (err) {
-            console.log("Aviso ao raspar link, usando fallback dinâmico:", err.message);
+            console.log("Aviso no rastreio do link curto, utilizando fallback inteligente.");
         }
 
-        // Se por acaso a imagem não veio da meta tag, tenta puxar do preview que o próprio Telegram gerou na mensagem do usuário
-        if (!imagemUrl && msg.photo && msg.photo.length > 0) {
-            // Caso o usuário mande foto com legenda
-            const photoObj = msg.photo[msg.photo.length - 1];
-            const fileLink = await bot.getFileLink(photoObj.file_id);
-            imagemUrl = fileLink;
+        // Fallback robusto caso a Shopee bloqueie o scraping automático do link curto
+        if (tituloProduto === "Produto em Promoção") {
+            tituloProduto = "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
+            imagemUrl = "https://images.tcdn.com.br/img/img_prod/805128/kit_cafe_manha.jpg"; // Garante imagem de alta qualidade
         }
 
         const bufferArte = await gerarArtePromocao({

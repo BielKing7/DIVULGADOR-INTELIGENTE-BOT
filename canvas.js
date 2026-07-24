@@ -57,25 +57,32 @@ async function gerarArtePromocaoPremium(product) {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // --- 4. Imagem do Produto (Blindada contra falhas da Shopee) ---
+    // --- 4. Imagem do Produto ---
     const imgSize = 750;
     const imgX = cardX + (cardW - imgSize) / 2;
     const imgY = cardY + 50;
 
-    try {
-        if (product.imageUrl) {
+    let imagemCarregada = false;
+    if (product.imageUrl) {
+        try {
             const productImage = await loadImage(product.imageUrl);
             ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
+            imagemCarregada = true;
+        } catch (e) {
+            console.log("Falha ao baixar imagem da URL da Shopee, renderizando placeholder.");
         }
-    } catch (e) {
-        console.log("Aviso: Não foi possível carregar a imagem da URL, usando placeholder interno.");
-        // Desenha um quadrado cinza de segurança caso a imagem externa falhe
-        ctx.fillStyle = '#F0F0F0';
+    }
+
+    // Se falhou ao carregar a imagem da web, desenha um placeholder bonito dentro do card
+    if (!imagemCarregada) {
+        ctx.fillStyle = '#F8F9FA';
         ctx.fillRect(imgX, imgY, imgSize, imgSize);
-        ctx.fillStyle = '#888888';
-        ctx.font = 'bold 30px sans-serif';
+        ctx.fillStyle = '#6C757D';
+        ctx.font = 'bold 40px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Imagem da Oferta', imgX + imgSize/2, imgY + imgSize/2);
+        ctx.fillText('📦 Oportunidade Única', imgX + imgSize / 2, imgY + imgSize / 2 - 20);
+        ctx.font = '30px sans-serif';
+        ctx.fillText('Confira no link abaixo', imgX + imgSize / 2, imgY + imgSize / 2 + 30);
     }
 
     // --- 5. Títulos e Preços ---

@@ -22,60 +22,47 @@ async function gerarArtePromocaoFixa(product) {
     const boxX = 110;
     const boxY = 175;
     const boxW = 860;
-    const boxH = 1070;
 
     // --- 3. Imagem do Produto dentro da Caixa Branca ---
-    const imgSize = 600;
+    const imgSize = 580;
     const imgX = boxX + (boxW - imgSize) / 2;
-    const imgY = boxY + 30;
+    const imgY = boxY + 20;
 
-    if (product.imageUrl) {
-        try {
-            const productImage = await loadImage(product.imageUrl);
-            ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
-        } catch (e) {
-            console.log("Falha ao carregar imagem do produto da web.");
-        }
+    let imageUrlFinal = product.imageUrl;
+    // Fallback de imagem caso a web bloqueie o link curto da Shopee
+    if (!imageUrlFinal || imageUrlFinal.includes('s.shopee.com.br')) {
+        imageUrlFinal = 'https://images.tcdn.com.br/img/img_prod/805128/kit_cafe_manha.jpg';
+    }
+
+    try {
+        const productImage = await loadImage(imageUrlFinal);
+        ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
+    } catch (e) {
+        console.log("Falha ao carregar imagem do produto.");
     }
 
     // --- 4. Título do Produto ---
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'center';
     ctx.fillStyle = '#111111';
-    ctx.font = 'bold 42px sans-serif';
+    ctx.font = 'bold 44px sans-serif';
     
-    let titulo = product.title || "Produto em Promoção";
+    let titulo = product.title || "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
     let linhasTitulo = quebrarTexto(ctx, titulo, boxW - 80);
-    let currentY = boxY + 680;
+    let currentY = boxY + 630;
     
     for (let linha of linhasTitulo.slice(0, 2)) {
-        ctx.fillText(linha, boxX + 40, currentY);
-        currentY += 50;
+        ctx.fillText(linha, 540, currentY);
+        currentY += 55;
     }
 
-    // --- 5. Preços (Preço Antigo Riscado e Preço Atual) ---
-    if (product.precoAntigo && product.precoAntigo !== product.precoAtual) {
-        ctx.fillStyle = '#888888';
-        ctx.font = '32px sans-serif';
-        let textoAntigo = `De ${product.precoAntigo}`;
-        ctx.fillText(textoAntigo, boxX + 40, currentY + 35);
-        
-        let textWidth = ctx.measureText(textoAntigo).width;
-        ctx.strokeStyle = '#FF3B30';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(boxX + 35, currentY + 23);
-        ctx.lineTo(boxX + 40 + textWidth, currentY + 23);
-        ctx.stroke();
-    }
-
-    // --- 6. Preço Atual na Pílula Vermelha Inferior da Arte ---
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 48px sans-serif';
+    // --- 5. Preço Atual na Pílula Roxa Inferior da Arte ---
+    ctx.fillStyle = '#FFFFFF'; // Branco forte para destacar na pílula roxa
+    ctx.font = 'bold 52px sans-serif';
     ctx.textAlign = 'center';
     let precoExibir = product.precoAtual || 'R$ 139,90';
     
-    // Coordenada centralizada na pílula vermelha da sua arte
-    ctx.fillText(precoExibir, 540, 1420);
+    // Coordenada exata dentro da pílula roxa com ícone de carrinho
+    ctx.fillText(precoExibir, 540, 835);
 
     return canvas.toBuffer('image/png');
 }

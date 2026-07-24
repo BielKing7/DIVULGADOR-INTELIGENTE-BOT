@@ -27,7 +27,6 @@ app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
 const usuariosState = {};
 
-// Comando /start liberado direto sem cadastro
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'AUTENTICADO' };
@@ -37,7 +36,6 @@ bot.onText(/\/start/, async (msg) => {
     );
 });
 
-// Comando para ativar o modo de postagem
 bot.onText(/\/poststory/, (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'POST_STORY' };
@@ -63,31 +61,62 @@ bot.on('message', async (msg) => {
     }
 
     const linkAfiliado = text;
-    bot.sendMessage(chatId, `✅ Seu link foi adicionado à fila de geração de Posts! Por favor, aguarde alguns instantes 👊`);
+    bot.sendMessage(chatId, `✅ Seu link foi adicionado à fila de geração de Posts! Por favor, aguarde alguns instantes 📱`);
 
     try {
-        let tituloProduto = "Fone de Ouvido Bluetooth Sem Fio J760";
-        let precoAtual = "R$ 40,26";
-        let precoAntigo = "R$ 72,00";
-        let imagemUrl = "https://images.tcdn.com.br/img/img_prod/805128/fone_de_ouvido_bluetooth_jbl_tune_510bt_preto_1381_1_20220610111151.jpg";
+        let tituloProduto = "Produto em Promoção";
+        let precoAtual = "Confira no site";
+        let precoAntigo = "";
+        let imagemUrl = "";
 
         try {
-            const { data } = await axios.get(linkAfiliado, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-                maxRedirects: 5
+            // Requisição com suporte a redirecionamento para capturar o link final da Shopee
+            const response = await axios.get(linkAfiliado, {
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+                },
+                maxRedirects: 5,
+                validateStatus: function (status) {
+                    return status >= 200 && status < 400; // Aceita redirecionamentos
+                }
             });
-            const $ = cheerio.load(data);
-            
-            const ogTitle = $('meta[property="og:title"]').attr('content');
-            const ogImage = $('meta[property="og:image"]').attr('content');
 
-            if (ogTitle) tituloProduto = ogTitle;
-            if (ogImage) imagemUrl = ogImage;
+            const $ = cheerio.load(response.data);
+            
+            // Pega as meta tags OpenGraph que a Shopee utiliza para compartilhamento
+            const ogTitle = $('meta[property="og:title"]').attr('content') || $('title').text();
+            const ogImage = $('meta[property="og:image"]').attr('content');
+            const ogDescription = $('meta[property="og:description"]').attr('content');
+
+            if (ogTitle) {
+                tituloProduto = ogTitle.replace(' | Shopee Brasil', '').trim();
+            }
+
+            if (ogImage) {
+                imagemUrl = ogImage;
+            }
+
+            // Tenta extrair algum indicativo de preço se houver na descrição ou título
+            if (ogDescription) {
+                const matchPreco = ogDescription.match(/R\$\s?[\d.,]+/);
+                if (matchPreco) {
+                    precoAtual = matchPreco[0];
+                }
+            }
+
         } catch (err) {
-            console.log("Aviso: Usando dados padrão para o produto.");
+            console.log("Aviso ao raspar link, usando fallback dinâmico:", err.message);
         }
 
-        // AQUI ESTÁ A CORREÇÃO: O 'await' foi adicionado!
+        // Se por acaso a imagem não veio da meta tag, tenta puxar do preview que o próprio Telegram gerou na mensagem do usuário
+        if (!imagemUrl && msg.photo && msg.photo.length > 0) {
+            // Caso o usuário mande foto com legenda
+            const photoObj = msg.photo[msg.photo.length - 1];
+            const fileLink = await bot.getFileLink(photoObj.file_id);
+            imagemUrl = fileLink;
+        }
+
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: precoAtual,
@@ -95,19 +124,25 @@ bot.on('message', async (msg) => {
             imageUrl: imagemUrl
         });
 
+        let captionTexto = `🛍️ *${tituloProduto}*\n\n`;
+        if (precoAntigo) captionTexto += `~De ${precoAntigo}~\n`;
+        captionTexto += `💥 *Por ${precoAtual}*\n\n`;
+        captionTexto += `🛒 Compre aqui 👉 ${linkAfiliado}\n\n`;
+        captionTexto += `⚠️ *Promoção sujeita à alteração de preço e estoque do site*`;
+
         await bot.sendPhoto(chatId, bufferArte, {
-            caption: `🛍️ *${tituloProduto}*\n\n~De ${precoAntigo}~\n💥 *Por ${precoAtual}*\n\n🛒 Compre aqui 👉 ${linkAfiliado}\n\n⚠️ *Promoção sujeita à alteração de preço e estoque do site*`,
+            caption: captionTexto,
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
                     [{ text: '📢 Publicar no site', callback_data: 'publicar_site' }],
-                    [{ text: '📱 Abrir WhatsApp', url: linkAfiliado }]
+                    [{ text: '📱 Abrir Link', url: linkAfiliado }]
                 ]
             }
         });
 
     } catch (error) {
-        console.error("Erro ao processar produto:", error);
+        console.error("Erro crítico ao processar produto:", error);
         bot.sendMessage(chatId, `❌ Erro ao gerar a arte do produto. Verifique o link e tente novamente.`);
     }
 });

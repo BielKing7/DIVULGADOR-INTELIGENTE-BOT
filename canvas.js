@@ -7,62 +7,54 @@ async function gerarArtePromocaoFixa(product) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // --- 1. Carrega a sua Imagem de Fundo Fixa do Repositório ---
+    // 1. Carrega a moldura fixa de fundo
     try {
         const caminhoFundo = path.join(__dirname, 'fundo-story.png');
         const imagemFundo = await loadImage(caminhoFundo);
         ctx.drawImage(imagemFundo, 0, 0, width, height);
     } catch (e) {
-        console.log("Aviso: 'fundo-story.png' não encontrado, usando cor sólida.");
         ctx.fillStyle = '#8A2BE2';
         ctx.fillRect(0, 0, width, height);
     }
 
-    // --- 2. Coordenadas da Caixa Branca Principal ---
     const boxX = 110;
     const boxY = 175;
     const boxW = 860;
 
-    // --- 3. Imagem do Produto dentro da Caixa Branca ---
-    const imgSize = 580;
+    // 2. Desenha a foto real do produto capturada do link curto
+    const imgSize = 540;
     const imgX = boxX + (boxW - imgSize) / 2;
-    const imgY = boxY + 20;
+    const imgY = boxY + 25;
 
-    let imageUrlFinal = product.imageUrl;
-    // Fallback de imagem caso a web bloqueie o link curto da Shopee
-    if (!imageUrlFinal || imageUrlFinal.includes('s.shopee.com.br')) {
-        imageUrlFinal = 'https://images.tcdn.com.br/img/img_prod/805128/kit_cafe_manha.jpg';
+    if (product.imageUrl) {
+        try {
+            const productImage = await loadImage(product.imageUrl);
+            ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
+        } catch (e) {
+            console.log("Erro ao carregar imagem da web.");
+        }
     }
 
-    try {
-        const productImage = await loadImage(imageUrlFinal);
-        ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
-    } catch (e) {
-        console.log("Falha ao carregar imagem do produto.");
-    }
-
-    // --- 4. Título do Produto ---
+    // 3. Título do Produto
     ctx.textAlign = 'center';
     ctx.fillStyle = '#111111';
-    ctx.font = 'bold 44px sans-serif';
+    ctx.font = 'bold 42px sans-serif';
     
-    let titulo = product.title || "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
+    let titulo = product.title || "Produto em Promoção";
     let linhasTitulo = quebrarTexto(ctx, titulo, boxW - 80);
-    let currentY = boxY + 630;
+    let currentY = boxY + 610;
     
     for (let linha of linhasTitulo.slice(0, 2)) {
         ctx.fillText(linha, 540, currentY);
-        currentY += 55;
+        currentY += 50;
     }
 
-    // --- 5. Preço Atual na Pílula Roxa Inferior da Arte ---
-    ctx.fillStyle = '#FFFFFF'; // Branco forte para destacar na pílula roxa
-    ctx.font = 'bold 52px sans-serif';
+    // 4. Preço Atual na Pílula Roxa Inferior
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 50px sans-serif';
     ctx.textAlign = 'center';
     let precoExibir = product.precoAtual || 'R$ 139,90';
-    
-    // Coordenada exata dentro da pílula roxa com ícone de carrinho
-    ctx.fillText(precoExibir, 540, 835);
+    ctx.fillText(precoExibir, 540, 1420); // Coordenada ajustada para a pílula roxa de preço
 
     return canvas.toBuffer('image/png');
 }

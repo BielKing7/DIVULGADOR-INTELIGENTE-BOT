@@ -87,7 +87,8 @@ bot.on('message', async (msg) => {
             console.log("Aviso: Usando dados padrão para o produto.");
         }
 
-        const bufferArte = gerarArtePromocao({
+        // AQUI ESTÁ A CORREÇÃO: O 'await' foi adicionado!
+        const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: precoAtual,
             precoAntigo: precoAntigo,

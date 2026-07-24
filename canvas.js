@@ -57,15 +57,25 @@ async function gerarArtePromocaoPremium(product) {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // --- 4. Imagem do Produto ---
+    // --- 4. Imagem do Produto (Blindada contra falhas da Shopee) ---
+    const imgSize = 750;
+    const imgX = cardX + (cardW - imgSize) / 2;
+    const imgY = cardY + 50;
+
     try {
-        const productImage = await loadImage(product.imageUrl);
-        const imgSize = 750;
-        const imgX = cardX + (cardW - imgSize) / 2;
-        const imgY = cardY + 50;
-        ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
+        if (product.imageUrl) {
+            const productImage = await loadImage(product.imageUrl);
+            ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
+        }
     } catch (e) {
-        console.error("Erro ao carregar imagem:", e);
+        console.log("Aviso: Não foi possível carregar a imagem da URL, usando placeholder interno.");
+        // Desenha um quadrado cinza de segurança caso a imagem externa falhe
+        ctx.fillStyle = '#F0F0F0';
+        ctx.fillRect(imgX, imgY, imgSize, imgSize);
+        ctx.fillStyle = '#888888';
+        ctx.font = 'bold 30px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Imagem da Oferta', imgX + imgSize/2, imgY + imgSize/2);
     }
 
     // --- 5. Títulos e Preços ---

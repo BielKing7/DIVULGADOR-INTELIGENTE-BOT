@@ -29,7 +29,7 @@ const usuariosState = {};
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'AUTENTICADO' };
-    bot.sendMessage(chatId, `🤖 Bot pronto! Envie /poststory para começar.`);
+    bot.sendMessage(chatId, `🤖 Bot online! Envie /poststory para começar.`);
 });
 
 bot.onText(/\/poststory/, (msg) => {
@@ -53,57 +53,66 @@ bot.on('message', async (msg) => {
     }
 
     const linkAfiliado = text;
-    bot.sendMessage(chatId, `🔄 Buscando imagem e preço reais do produto na Shopee, aguarde...`);
+    bot.sendMessage(chatId, `🔄 Rastreando link da Shopee e capturando imagem, aguarde...`);
 
-    let tituloProduto = "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
-    let precoAtual = "R$ 139,90";
+    let tituloProduto = "Produto Shopee";
+    let precoAtual = "R$ 99,90";
     let imagemUrl = "";
 
     let browser = null;
     try {
-        // Abre um navegador invisível para burlar a segurança da Shopee e ler o link curto
+        // Inicializa o navegador em modo leve otimizado para servidores
         browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            headless: 'new',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu'
+            ]
         });
+
         const page = await browser.newPage();
-        
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         
-        // Acessa o link curto e aguarda a página carregar
+        // Vai até o link curto e aguarda carregar a página de destino final
         await page.goto(linkAfiliado, { waitUntil: 'networkidle2', timeout: 30000 });
 
         // Extrai as meta tags oficiais da página final da Shopee
-        const dadosPagina = await page.evaluate(() => {
-            const titleMeta = document.querySelector('meta[property="og:title"]');
-            const imageMeta = document.querySelector('meta[property="og:image"]');
-            const descMeta = document.querySelector('meta[property="og:description"]');
+        const dadosProduto = await page.evaluate(() => {
+            const getMeta = (prop) => {
+                const el = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop}"]`);
+                return el ? el.getAttribute('content') : null;
+            };
 
             return {
-                title: titleMeta ? titleMeta.content : null,
-                image: imageMeta ? imageMeta.content : null,
-                desc: descMeta ? descMeta.content : null
+                title: getMeta('og:title') || document.title,
+                image: getMeta('og:image'),
+                description: getMeta('og:description')
             };
         });
 
-        if (dadosPagina.title) {
-            tituloProduto = dadosPagina.title.replace(' | Shopee Brasil', '').trim();
+        if (dadosProduto.title) {
+            tituloProduto = dadosProduto.title.replace(' | Shopee Brasil', '').trim();
         }
-        if (dadosPagina.image) {
-            imagemUrl = dadosPagina.image;
+
+        if (dadosProduto.image) {
+            imagemUrl = dadosProduto.image;
         }
-        if (dadosPagina.desc) {
-            const matchPreco = dadosPagina.desc.match(/R\$\s?[\d.,]+/);
+
+        if (dadosProduto.description) {
+            const matchPreco = dadosProduto.description.match(/R\$\s?[\d.,]+/);
             if (matchPreco) {
                 precoAtual = matchPreco[0];
             }
         }
 
-    } catch (err) {
-        console.error("Erro no Puppeteer:", err);
+    } catch (error) {
+        console.error("Erro ao usar Puppeteer:", error);
     } finally {
         if (browser) {
-            await browser.close();
+            await browser.close(); // Fecha o navegador para liberar memória RAM imediatamente
         }
     }
 
@@ -132,6 +141,6 @@ bot.on('message', async (msg) => {
 
     } catch (error) {
         console.error("Erro ao gerar arte:", error);
-        bot.sendMessage(chatId, `❌ Erro ao gerar a arte.`);
+        bot.sendMessage(chatId, `❌ Erro ao gerar a arte com a imagem.`);
     }
 });

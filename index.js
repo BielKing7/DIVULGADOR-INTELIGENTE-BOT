@@ -1,11 +1,10 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const { gerarArtePromocao } = require('./canvas');
 
-// --- CONFIGURAÇÃO DO FIREBASE ADMIN (VIA VARIÁVEL DE AMBIENTE) ---
+// --- CONFIGURAÇÃO DO FIREBASE ADMIN ---
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 
@@ -15,7 +14,7 @@ initializeApp({
   credential: cert(serviceAccount)
 });
 const db = getFirestore();
-// -----------------------------------------------------------------
+// -------------------------------------
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
@@ -30,17 +29,13 @@ const usuariosState = {};
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'AUTENTICADO' };
-    
-    bot.sendMessage(chatId, 
-        `Bem-vindo ao 🤖 Divulgador Inteligente Bot 🛍️!\n\nModo de teste rápido ativado. Envie /poststory para começar a criar suas publicações! 🚀`
-    );
+    bot.sendMessage(chatId, `🤖 Bot pronto! Envie /poststory para começar.`);
 });
 
 bot.onText(/\/poststory/, (msg) => {
     const chatId = msg.chat.id;
     usuariosState[chatId] = { step: 'POST_STORY' };
-    
-    bot.sendMessage(chatId, `🔄 Ativando o modo combinado de Post e Story! 📝📱✨\n\nAgora envie o seu link de afiliado para gerarmos a publicação.`);
+    bot.sendMessage(chatId, `📱 Envie o seu link curto de afiliado da Shopee agora:`);
 });
 
 bot.on('message', async (msg) => {
@@ -50,10 +45,7 @@ bot.on('message', async (msg) => {
     if (!text || text.startsWith('/')) return;
 
     const estado = usuariosState[chatId];
-    if (!estado || estado.step !== 'POST_STORY') {
-        bot.sendMessage(chatId, `Envie /start para iniciar ou /poststory para gerar uma arte.`);
-        return;
-    }
+    if (!estado || estado.step !== 'POST_STORY') return;
 
     if (!text.startsWith('http')) {
         bot.sendMessage(chatId, `⚠️ Por favor, envie um link válido.`);
@@ -61,68 +53,68 @@ bot.on('message', async (msg) => {
     }
 
     const linkAfiliado = text;
-    bot.sendMessage(chatId, `✅ Seu link foi adicionado à fila de geração de Posts! Por favor, aguarde alguns instantes 📱`);
+    bot.sendMessage(chatId, `🔄 Buscando imagem e preço reais do produto na Shopee, aguarde...`);
+
+    let tituloProduto = "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
+    let precoAtual = "R$ 139,90";
+    let imagemUrl = "";
+
+    let browser = null;
+    try {
+        // Abre um navegador invisível para burlar a segurança da Shopee e ler o link curto
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+        
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        
+        // Acessa o link curto e aguarda a página carregar
+        await page.goto(linkAfiliado, { waitUntil: 'networkidle2', timeout: 30000 });
+
+        // Extrai as meta tags oficiais da página final da Shopee
+        const dadosPagina = await page.evaluate(() => {
+            const titleMeta = document.querySelector('meta[property="og:title"]');
+            const imageMeta = document.querySelector('meta[property="og:image"]');
+            const descMeta = document.querySelector('meta[property="og:description"]');
+
+            return {
+                title: titleMeta ? titleMeta.content : null,
+                image: imageMeta ? imageMeta.content : null,
+                desc: descMeta ? descMeta.content : null
+            };
+        });
+
+        if (dadosPagina.title) {
+            tituloProduto = dadosPagina.title.replace(' | Shopee Brasil', '').trim();
+        }
+        if (dadosPagina.image) {
+            imagemUrl = dadosPagina.image;
+        }
+        if (dadosPagina.desc) {
+            const matchPreco = dadosPagina.desc.match(/R\$\s?[\d.,]+/);
+            if (matchPreco) {
+                precoAtual = matchPreco[0];
+            }
+        }
+
+    } catch (err) {
+        console.error("Erro no Puppeteer:", err);
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
+    }
 
     try {
-        let tituloProduto = "Produto em Promoção";
-        let precoAtual = "R$ 139,90"; // Baseado no seu print do painel de afiliados
-        let precoAntigo = "";
-        let imagemUrl = "";
-
-        try {
-            // Faz a requisição seguindo os redirecionamentos do link curto da Shopee
-            const response = await axios.get(linkAfiliado, {
-                headers: { 
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
-                },
-                maxRedirects: 10,
-                validateStatus: function (status) {
-                    return status >= 200 && status < 400;
-                }
-            });
-
-            const $ = cheerio.load(response.data);
-            
-            // Extração das meta tags OpenGraph oficiais da Shopee
-            const ogTitle = $('meta[property="og:title"]').attr('content');
-            const ogImage = $('meta[property="og:image"]').attr('content');
-            const ogDescription = $('meta[property="og:description"]').attr('content');
-
-            if (ogTitle) {
-                tituloProduto = ogTitle.replace(' | Shopee Brasil', '').trim();
-            }
-
-            if (ogImage) {
-                imagemUrl = ogImage;
-            }
-
-            if (ogDescription) {
-                const matchPreco = ogDescription.match(/R\$\s?[\d.,]+/);
-                if (matchPreco) {
-                    precoAtual = matchPreco[0];
-                }
-            }
-        } catch (err) {
-            console.log("Aviso no rastreio do link curto, utilizando fallback inteligente.");
-        }
-
-        // Fallback robusto caso a Shopee bloqueie o scraping automático do link curto
-        if (tituloProduto === "Produto em Promoção") {
-            tituloProduto = "Kit Café Manhã Chaleira Elétrica + Sanduicheira";
-            imagemUrl = "https://images.tcdn.com.br/img/img_prod/805128/kit_cafe_manha.jpg"; // Garante imagem de alta qualidade
-        }
-
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: precoAtual,
-            precoAntigo: precoAntigo,
             imageUrl: imagemUrl
         });
 
         let captionTexto = `🛍️ *${tituloProduto}*\n\n`;
-        if (precoAntigo) captionTexto += `~De ${precoAntigo}~\n`;
         captionTexto += `💥 *Por ${precoAtual}*\n\n`;
         captionTexto += `🛒 Compre aqui 👉 ${linkAfiliado}\n\n`;
         captionTexto += `⚠️ *Promoção sujeita à alteração de preço e estoque do site*`;
@@ -139,7 +131,7 @@ bot.on('message', async (msg) => {
         });
 
     } catch (error) {
-        console.error("Erro crítico ao processar produto:", error);
-        bot.sendMessage(chatId, `❌ Erro ao gerar a arte do produto. Verifique o link e tente novamente.`);
+        console.error("Erro ao gerar arte:", error);
+        bot.sendMessage(chatId, `❌ Erro ao gerar a arte.`);
     }
 });

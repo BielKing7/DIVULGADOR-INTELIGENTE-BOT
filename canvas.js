@@ -1,153 +1,81 @@
 const { createCanvas, loadImage } = require('canvas');
+const path = require('path');
 
-async function gerarArtePromocaoPremium(product) {
-    // Dimensões no formato Story/Vertical (1080x1920)
+async function gerarArtePromocaoFixa(product) {
     const width = 1080;
     const height = 1920;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // --- 1. Fundo Degradê (Rosa para Roxo) ---
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
-    gradient.addColorStop(0, '#FF517F');
-    gradient.addColorStop(1, '#8A2BE2');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+    // --- 1. Carrega a sua Imagem de Fundo Fixa do Repositório ---
+    try {
+        const caminhoFundo = path.join(__dirname, 'fundo-story.png');
+        const imagemFundo = await loadImage(caminhoFundo);
+        ctx.drawImage(imagemFundo, 0, 0, width, height);
+    } catch (e) {
+        console.log("Aviso: 'fundo-story.png' não encontrado, usando cor sólida.");
+        ctx.fillStyle = '#8A2BE2';
+        ctx.fillRect(0, 0, width, height);
+    }
 
-    // --- 2. Cabeçalho Superior ---
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.font = '400 120px sans-serif';
-    ctx.fillText('%', 100, 170);
+    // --- 2. Coordenadas da Caixa Branca Principal ---
+    const boxX = 110;
+    const boxY = 175;
+    const boxW = 860;
+    const boxH = 1070;
 
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 70px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('OFERTAS', 560, 130);
-    ctx.fillText('INCRÍVEIS', 560, 210);
+    // --- 3. Imagem do Produto dentro da Caixa Branca ---
+    const imgSize = 600;
+    const imgX = boxX + (boxW - imgSize) / 2;
+    const imgY = boxY + 30;
 
-    ctx.font = '900 120px sans-serif';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText('👜', 850, 175);
-
-    // --- 3. Cartão Branco Central com Sombra ---
-    ctx.fillStyle = '#FFFFFF';
-    ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 30;
-    ctx.shadowOffsetY = 10;
-    
-    const cardX = 100;
-    const cardY = 280;
-    const cardW = 880;
-    const cardH = 1100;
-    const radius = 40;
-
-    ctx.beginPath();
-    ctx.moveTo(cardX + radius, cardY);
-    ctx.lineTo(cardX + cardW - radius, cardY);
-    ctx.quadraticCurveTo(cardX + cardW, cardY, cardX + cardW, cardY + radius);
-    ctx.lineTo(cardX + cardW, cardY + cardH - radius);
-    ctx.quadraticCurveTo(cardX + cardW, cardY + cardH, cardX + cardW - radius, cardY + cardH);
-    ctx.lineTo(cardX + radius, cardY + cardH);
-    ctx.quadraticCurveTo(cardX, cardY + cardH, cardX, cardY + cardH - radius);
-    ctx.lineTo(cardX, cardY + radius);
-    ctx.quadraticCurveTo(cardX, cardY, cardX + radius, cardY);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-
-    // --- 4. Imagem do Produto ---
-    const imgSize = 750;
-    const imgX = cardX + (cardW - imgSize) / 2;
-    const imgY = cardY + 50;
-
-    let imagemCarregada = false;
     if (product.imageUrl) {
         try {
             const productImage = await loadImage(product.imageUrl);
             ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
-            imagemCarregada = true;
         } catch (e) {
-            console.log("Falha ao baixar imagem da URL da Shopee, renderizando placeholder.");
+            console.log("Falha ao carregar imagem do produto da web.");
         }
     }
 
-    // Se falhou ao carregar a imagem da web, desenha um placeholder bonito dentro do card
-    if (!imagemCarregada) {
-        ctx.fillStyle = '#F8F9FA';
-        ctx.fillRect(imgX, imgY, imgSize, imgSize);
-        ctx.fillStyle = '#6C757D';
-        ctx.font = 'bold 40px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('📦 Oportunidade Única', imgX + imgSize / 2, imgY + imgSize / 2 - 20);
-        ctx.font = '30px sans-serif';
-        ctx.fillText('Confira no link abaixo', imgX + imgSize / 2, imgY + imgSize / 2 + 30);
-    }
-
-    // --- 5. Títulos e Preços ---
+    // --- 4. Título do Produto ---
     ctx.textAlign = 'left';
-    
     ctx.fillStyle = '#111111';
-    ctx.font = 'bold 50px sans-serif';
+    ctx.font = 'bold 42px sans-serif';
+    
     let titulo = product.title || "Produto em Promoção";
-    let linhasTitulo = quebrarTexto(ctx, titulo, cardW - 100);
-    let currentY = cardY + 880;
-    for (let linha of linhasTitulo.slice(0, 3)) {
-        ctx.fillText(linha, cardX + 50, currentY);
-        currentY += 60;
+    let linhasTitulo = quebrarTexto(ctx, titulo, boxW - 80);
+    let currentY = boxY + 680;
+    
+    for (let linha of linhasTitulo.slice(0, 2)) {
+        ctx.fillText(linha, boxX + 40, currentY);
+        currentY += 50;
     }
 
-    ctx.fillStyle = '#888888';
-    ctx.font = '40px sans-serif';
-    let precoAntigoTexto = `De ${product.precoAntigo || 'R$ 72,00'}`;
-    ctx.fillText(precoAntigoTexto, cardX + 50, currentY + 40);
-    
-    let textWidth = ctx.measureText(precoAntigoTexto).width;
-    ctx.strokeStyle = '#FF3B30';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cardX + 45, currentY + 25);
-    ctx.lineTo(cardX + 50 + textWidth, currentY + 25);
-    ctx.stroke();
+    // --- 5. Preços (Preço Antigo Riscado e Preço Atual) ---
+    if (product.precoAntigo && product.precoAntigo !== product.precoAtual) {
+        ctx.fillStyle = '#888888';
+        ctx.font = '32px sans-serif';
+        let textoAntigo = `De ${product.precoAntigo}`;
+        ctx.fillText(textoAntigo, boxX + 40, currentY + 35);
+        
+        let textWidth = ctx.measureText(textoAntigo).width;
+        ctx.strokeStyle = '#FF3B30';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(boxX + 35, currentY + 23);
+        ctx.lineTo(boxX + 40 + textWidth, currentY + 23);
+        ctx.stroke();
+    }
 
-    // --- 6. Botão Vermelho "COMPRE AQUI" ---
-    const btnX = cardX + 50;
-    const btnY = currentY + 80;
-    const btnW = cardW - 100;
-    const btnH = 120;
-    const btnRadius = 20;
-
-    ctx.fillStyle = '#E62E2E';
-    ctx.beginPath();
-    ctx.moveTo(btnX + btnRadius, btnY);
-    ctx.lineTo(btnX + btnW - btnRadius, btnY);
-    ctx.quadraticCurveTo(btnX + btnW, btnY, btnX + btnW, btnY + btnRadius);
-    ctx.lineTo(btnX + btnW, btnY + btnH - btnRadius);
-    ctx.quadraticCurveTo(btnX + btnW, btnY + btnH, btnX + btnW - btnRadius, btnY + btnH);
-    ctx.lineTo(btnX + btnRadius, btnY + btnH);
-    ctx.quadraticCurveTo(btnX, btnY + btnH, btnX, btnY + btnH - btnRadius);
-    ctx.lineTo(btnX, btnY + btnRadius);
-    ctx.quadraticCurveTo(btnX, btnY, btnX + btnRadius, btnY);
-    ctx.closePath();
-    ctx.fill();
-
+    // --- 6. Preço Atual na Pílula Vermelha Inferior da Arte ---
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 60px sans-serif';
+    ctx.font = 'bold 48px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(product.precoAtual || 'R$ 40,26', btnX + btnW / 2 - 100, btnY + 85);
-    ctx.font = 'bold 50px sans-serif';
-    ctx.fillText('COMPRE AQUI', btnX + btnW / 2 + 130, btnY + 85);
-
-    // --- 7. Rodapé e Marca d'água Lateral ---
-    ctx.save();
-    ctx.translate(width - 50, height / 2 + 200);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.font = '400 36px sans-serif';
-    ctx.fillText('@OFERTAS.INCRIVEIS.BRTOP', 0, 0);
-    ctx.restore();
+    let precoExibir = product.precoAtual || 'R$ 139,90';
+    
+    // Coordenada centralizada na pílula vermelha da sua arte
+    ctx.fillText(precoExibir, 540, 1420);
 
     return canvas.toBuffer('image/png');
 }
@@ -155,6 +83,7 @@ async function gerarArtePromocaoPremium(product) {
 function quebrarTexto(ctx, texto, larguraMaxima) {
     let palavras = texto.split(' ');
     let linhas = [];
+    if (palavras.length === 0) return [''];
     let linhaAtual = palavras[0];
 
     for (let i = 1; i < palavras.length; i++) {
@@ -171,4 +100,4 @@ function quebrarTexto(ctx, texto, larguraMaxima) {
     return linhas;
 }
 
-module.exports = { gerarArtePromocao: gerarArtePromocaoPremium };
+module.exports = { gerarArtePromocao: gerarArtePromocaoFixa };

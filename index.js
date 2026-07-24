@@ -53,15 +53,15 @@ bot.on('message', async (msg) => {
     }
 
     const linkAfiliado = text;
-    bot.sendMessage(chatId, `🔄 Rastreando link da Shopee e capturando imagem, aguarde...`);
+    bot.sendMessage(chatId, `🔄 Rastreando link da Shopee e capturando imagem do produto, aguarde...`);
 
-    let tituloProduto = "Produto Shopee";
+    let tituloProduto = "Produto em Promoção";
     let precoAtual = "R$ 99,90";
     let imagemUrl = "";
 
     let browser = null;
     try {
-        // Inicializa o navegador em modo leve otimizado para servidores
+        // Inicializa o navegador em modo leve, otimizado para servidores
         browser = await puppeteer.launch({
             headless: 'new',
             args: [
@@ -69,17 +69,21 @@ bot.on('message', async (msg) => {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--window-size=1280,800'
             ]
         });
 
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         
-        // Vai até o link curto e aguarda carregar a página de destino final
+        // Acessa o link curto e aguarda o redirecionamento final da Shopee
         await page.goto(linkAfiliado, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Extrai as meta tags oficiais da página final da Shopee
+        // Aguarda um instante para garantir a estabilização da página
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Extrai as meta tags oficiais (`og:image`, `og:title`, etc.) da página final
         const dadosProduto = await page.evaluate(() => {
             const getMeta = (prop) => {
                 const el = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop}"]`);
@@ -112,7 +116,7 @@ bot.on('message', async (msg) => {
         console.error("Erro ao usar Puppeteer:", error);
     } finally {
         if (browser) {
-            await browser.close(); // Fecha o navegador para liberar memória RAM imediatamente
+            await browser.close(); // Fecha o navegador para liberar a memória do servidor
         }
     }
 

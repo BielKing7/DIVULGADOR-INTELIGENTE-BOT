@@ -2,26 +2,33 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio');
+const crypto = require('crypto');
 const { gerarArtePromocao } = require('./canvas');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
+// Servidor Express para manter o Render ativo
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot de Divulgação Shopee online! 🚀'));
+app.get('/', (req, res) => res.send('Bot de Afiliados Shopee (API Oficial) online! 🚀'));
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
 const usuariosState = {};
 
+// Função oficial de assinatura baseada estritamente na documentação da Shopee (HMAC-SHA256)
+function gerarAssinaturaShopee(appId, secret, timestamp, payloadString) {
+    const factor = `${appId}${timestamp}${payloadString}${secret}`;
+    return crypto.createHash('sha256').update(factor).digest('hex');
+}
+
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, `🤖 Bot de Divulgação Shopee ativo! Envie /poststory para começar.`);
+    bot.sendMessage(msg.chat.id, `🤖 Bot Oficial da Shopee configurado! Envie /poststory para começar.`);
 });
 
 bot.onText(/\/poststory/, (msg) => {
     usuariosState[msg.chat.id] = { step: 'POST_STORY' };
-    bot.sendMessage(msg.chat.id, `📱 Envie o seu link de afiliado da Shopee:`);
+    bot.sendMessage(msg.chat.id, `📱 Envie o nome ou o termo do produto que deseja buscar na Shopee para gerar a divulgação:`);
 });
 
 bot.on('message', async (msg) => {
@@ -31,36 +38,55 @@ bot.on('message', async (msg) => {
     if (!text || text.startsWith('/')) return;
     if (!usuariosState[chatId] || usuariosState[chatId].step !== 'POST_STORY') return;
 
-    const linkAfiliado = text.trim();
-    if (!linkAfiliado.startsWith('http')) {
-        bot.sendMessage(chatId, `⚠️ Por favor, envie um link válido começando com http.`);
-        return;
-    }
-
-    bot.sendMessage(chatId, `🔄 Analisando o link e gerando sua arte de divulgação...`);
+    const termoBusca = text.trim();
+    bot.sendMessage(chatId, `🔄 Conectando à API Oficial da Shopee e gerando sua arte...`);
 
     try {
-        const resposta = await axios.get(linkAfiliado, {
-            maxRedirects: 5,
+        const appId = process.env.SHOPEE_APP_ID;
+        const secret = process.env.SHOPEE_SECRET;
+        const timestamp = Math.floor(Date.now() / 1000);
+
+        // Query GraphQL oficial para busca de ofertas (Get Product Offer List - shopeeOfferV2)
+        const graphqlQuery = {
+            query: `
+                query {
+                    shopeeOfferV2(keyword: "${termoBusca}", limit: 1) {
+                        nodes {
+                            offerName
+                            imageUrl
+                            offerLink
+                        }
+                    }
+                }
+            `
+        };
+
+        const payloadString = JSON.stringify(graphqlQuery);
+        const signature = gerarAssinaturaShopee(appId, secret, timestamp, payloadString);
+
+        // Cabeçalho de autorização oficial exigido pela plataforma de Afiliados
+        const authHeader = `SHA256 Credential=${appId}, Timestamp=${timestamp}, Signature=${signature}`;
+
+        const respostaApi = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', graphqlQuery, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'Content-Type': 'application/json',
+                'Authorization': authHeader
             }
         });
 
-        const $ = cheerio.load(resposta.data);
+        const dadosProduto = respostaApi.data?.data?.shopeeOfferV2?.nodes?.[0];
 
-        // Extrai o título e a imagem oficial do produto através do Cheerio
-        const tituloProduto = $('meta[property="og:title"]').attr('content') || $('title').text() || "Oferta Imperdível na Shopee";
-        const imagemUrl = $('meta[property="og:image"]').attr('content');
-
-        if (!imagemUrl) {
-            throw new Error('Não foi possível localizar a imagem do produto neste link.');
+        if (!dadosProduto) {
+            throw new Error('Nenhum produto retornado pela API da Shopee.');
         }
 
-        // Gera a arte fixa com os dados capturados
+        const tituloProduto = dadosProduto.offerName;
+        const imagemUrl = dadosProduto.imageUrl;
+        const linkAfiliado = dadosProduto.offerLink;
+
+        // Gera a arte fixa combinando os dados da API
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
-            precoAtual: "Imperdível",
             imageUrl: imagemUrl
         });
 
@@ -81,7 +107,7 @@ bot.on('message', async (msg) => {
         delete usuariosState[chatId];
 
     } catch (error) {
-        console.error("Erro ao processar o link:", error.message);
-        bot.sendMessage(chatId, `❌ Erro ao extrair os dados do produto. Certifique-se de enviar um link direto de produto da Shopee.`);
+        console.error("Erro na API da Shopee:", error.response?.data || error.message);
+        bot.sendMessage(chatId, `❌ Erro ao consultar a API Oficial da Shopee. Verifique suas credenciais no Render.`);
     }
 });

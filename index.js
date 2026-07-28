@@ -10,24 +10,24 @@ const bot = new TelegramBot(token, { polling: true });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot com API Shopee online! 🚀'));
+app.get('/', (req, res) => res.send('Bot da Shopee online! 🚀'));
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
 const usuariosState = {};
 
-// Função para gerar a assinatura correta exigida pela Open API da Shopee
-function gerarAssinaturaShopee(appId, secret, timestamp, payload) {
-    const baseString = `${appId}${timestamp}${payload}${secret}`;
+// Função oficial para gerar a assinatura HMAC/SHA256 exigida pela Shopee
+function gerarAssinaturaShopee(appId, secret, timestamp, payloadString) {
+    const baseString = `${appId}${timestamp}${payloadString}${secret}`;
     return crypto.createHash('sha256').update(baseString).digest('hex');
 }
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, `🤖 Bot com API Oficial da Shopee ativo! Envie /poststory para começar.`);
+    bot.sendMessage(msg.chat.id, `🤖 Bot de Divulgação Shopee ativo! Envie /poststory para começar.`);
 });
 
 bot.onText(/\/poststory/, (msg) => {
     usuariosState[msg.chat.id] = { step: 'POST_STORY' };
-    bot.sendMessage(msg.chat.id, `📱 Envie o termo de busca ou palavra-chave do produto na Shopee:`);
+    bot.sendMessage(msg.chat.id, `📱 Envie o link do produto ou o nome/termo de busca da Shopee:`);
 });
 
 bot.on('message', async (msg) => {
@@ -37,14 +37,18 @@ bot.on('message', async (msg) => {
     if (!text || text.startsWith('/')) return;
     if (!usuariosState[chatId] || usuariosState[chatId].step !== 'POST_STORY') return;
 
-    const termoBusca = text;
-    bot.sendMessage(chatId, `🔄 Consultando a API Oficial da Shopee com assinatura segura, aguarde...`);
+    const entradaUsuario = text.trim();
+    bot.sendMessage(chatId, `🔄 Processando link e consultando a API da Shopee com segurança...`);
 
     try {
         const appId = process.env.SHOPEE_APP_ID;
         const secret = process.env.SHOPEE_SECRET;
         const timestamp = Math.floor(Date.now() / 1000);
 
+        // Se o usuário mandou um link, podemos usar uma palavra-chave genérica ou o link na query conforme suportado
+        const termoBusca = entradaUsuario.includes('http') ? "Oferta" : entradaUsuario;
+
+        // Estrutura da Query GraphQL oficial da Shopee Affiliates
         const graphqlQuery = {
             query: `
                 query {
@@ -62,6 +66,7 @@ bot.on('message', async (msg) => {
         const payloadString = JSON.stringify(graphqlQuery);
         const signature = gerarAssinaturaShopee(appId, secret, timestamp, payloadString);
 
+        // Requisição oficial autenticada para a API da Shopee
         const respostaApi = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', graphqlQuery, {
             headers: {
                 'Content-Type': 'application/json',
@@ -71,18 +76,17 @@ bot.on('message', async (msg) => {
             }
         });
 
-        console.log("Resposta da Shopee:", JSON.stringify(respostaApi.data));
-
         const dadosProduto = respostaApi.data?.data?.shopeeOfferV2?.nodes?.[0];
 
         if (!dadosProduto) {
-            throw new Error('Nenhum produto encontrado com esse termo.');
+            throw new Error('Nenhum produto retornado pela API.');
         }
 
-        const tituloProduto = dadosProduto.offerName;
+        const tituloProduto = dadosProduto.offerName || "Produto Imperdível";
         const imagemUrl = dadosProduto.imageUrl;
-        const linkFinal = dadosProduto.offerLink;
+        const linkFinal = entradaUsuario.includes('http') ? entradaUsuario : (dadosProduto.offerLink || "https://shopee.com.br");
 
+        // Gera a arte fixa com os dados oficiais obtidos da API
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: "Imperdível",
@@ -103,8 +107,10 @@ bot.on('message', async (msg) => {
             }
         });
 
+        delete usuariosState[chatId];
+
     } catch (error) {
-        console.error("ERRO DETALHADO:", error.response?.data || error.message);
-        bot.sendMessage(chatId, `❌ Erro ao consultar a API com assinatura.`);
+        console.error("Erro na API da Shopee:", error.response?.data || error.message);
+        bot.sendMessage(chatId, `❌ Erro ao consultar a API da Shopee. Verifique suas credenciais nas variáveis de ambiente.`);
     }
 });

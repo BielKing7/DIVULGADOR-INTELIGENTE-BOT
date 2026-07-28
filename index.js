@@ -36,7 +36,6 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId, `🔄 Buscando dados oficiais na API da Shopee, aguarde...`);
 
     try {
-        // Query oficial baseada estritamente na documentação da Shopee (shopeeOfferV2)
         const graphqlQuery = {
             query: `
                 query {
@@ -51,6 +50,8 @@ bot.on('message', async (msg) => {
             `
         };
 
+        console.log("Enviando requisição para Shopee com AppId:", process.env.SHOPEE_APP_ID);
+
         const respostaApi = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', graphqlQuery, {
             headers: {
                 'Content-Type': 'application/json',
@@ -58,6 +59,8 @@ bot.on('message', async (msg) => {
                 'Authorization': `Bearer ${process.env.SHOPEE_SECRET}`
             }
         });
+
+        console.log("Resposta bruta da Shopee:", JSON.stringify(respostaApi.data));
 
         const dadosProduto = respostaApi.data?.data?.shopeeOfferV2?.nodes?.[0];
 
@@ -69,7 +72,6 @@ bot.on('message', async (msg) => {
         const imagemUrl = dadosProduto.imageUrl;
         const linkFinal = text.includes('http') ? text : (dadosProduto.offerLink || linkAfiliadoOriginal);
 
-        // Gerar a arte via Canvas
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: "Imperdível",
@@ -91,7 +93,7 @@ bot.on('message', async (msg) => {
         });
 
     } catch (error) {
-        console.error("Erro na API da Shopee:", error.response?.data || error.message);
-        bot.sendMessage(chatId, `❌ Erro ao consultar a API da Shopee. Verifique os logs.`);
+        console.error("ERRO DETALHADO NA API:", error.response?.data || error.message);
+        bot.sendMessage(chatId, `❌ Erro: ${error.message}`);
     }
 });

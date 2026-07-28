@@ -26,7 +26,15 @@ server.listen(PORT, () => {
 const bot = new TelegramBot(token, { polling: true });
 console.log('🤖 Divulgador Inteligente iniciado e ouvindo mensagens...');
 
-// Função para buscar dados do produto na API GraphQL da Shopee
+// Função para formatar o preço corretamente para o padrão brasileiro (R$ X.XXX,XX)
+function formatPrice(priceStr) {
+    if (!priceStr) return '0,00';
+    let num = parseFloat(priceStr);
+    if (isNaN(num)) return priceStr;
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Função para buscar dados exatos do produto na API da Shopee
 async function getShopeeProductData(productUrl) {
     console.log('🔍 Analisando URL recebida:', productUrl);
 
@@ -44,41 +52,62 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    let searchTerm = "oferta shopee";
-    const urlParts = targetUrl.split('?')[0].split('/');
-    const cleanSlug = urlParts.find(part => part.includes('-i.'));
-    if (cleanSlug) {
-        try {
-            const decodedSlug = decodeURIComponent(cleanSlug);
-            const words = decodedSlug.split('-i.')[0].split('-');
-            searchTerm = words.slice(0, 4).join(' '); 
-            console.log(`🧹 Termo decodificado para busca: "${searchTerm}"`);
-        } catch (e) {
-            searchTerm = cleanSlug.split('-i.')[0].replace(/-/g, ' ');
-        }
-    } else {
-        const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
-        if (matchItem) {
-            searchTerm = matchItem[2];
-            console.log(`🎯 ID numérico extraído: ${searchTerm}`);
-        }
+    // Extrai o ID numérico exato do produto da URL da Shopee (ex: ...-i.1097151802.23093823316)
+    let itemId = null;
+    const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
+    if (matchItem) {
+        itemId = matchItem[2];
+        console.log(`🎯 ID numérico exato do produto extraído com sucesso: ${itemId}`);
     }
 
-    const query = `
-    query {
-      productOfferV2(keyword: "${searchTerm}", limit: 5) {
-        nodes {
-          itemId
-          productName
-          priceMin
-          priceMax
-          imageUrl
-          offerLink
-          productLink
+    // Se por acaso não achar o ID na URL, tentamos buscar pelo título decodificado
+    let query = '';
+    if (itemId) {
+        // Busca focada e cirúrgica pelo ID do item na API da Shopee
+        query = `
+        query {
+          productOfferV2(itemId: ${itemId}) {
+            nodes {
+              itemId
+              productName
+              priceMin
+              priceMax
+              imageUrl
+              offerLink
+              productLink
+            }
+          }
         }
-      }
+        `;
+    } else {
+        let searchTerm = "oferta shopee";
+        const urlParts = targetUrl.split('?')[0].split('/');
+        const cleanSlug = urlParts.find(part => part.includes('-i.'));
+        if (cleanSlug) {
+            try {
+                const decodedSlug = decodeURIComponent(cleanSlug);
+                const words = decodedSlug.split('-i.')[0].split('-');
+                searchTerm = words.slice(0, 4).join(' '); 
+            } catch (e) {
+                searchTerm = "shopee";
+            }
+        }
+        query = `
+        query {
+          productOfferV2(keyword: "${searchTerm}", limit: 5) {
+            nodes {
+              itemId
+              productName
+              priceMin
+              priceMax
+              imageUrl
+              offerLink
+              productLink
+            }
+          }
+        }
+        `;
     }
-    `;
 
     const payload = JSON.stringify({ query });
     const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -89,7 +118,7 @@ async function getShopeeProductData(productUrl) {
     const authorizationHeader = `SHA256 Credential=${SHOPEE_APP_ID}, Timestamp=${timestamp}, Signature=${signature}`;
 
     try {
-        console.log('📡 Enviando requisição para a API da Shopee com o termo:', searchTerm);
+        console.log('📡 Enviando requisição para a API da Shopee...');
         const response = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', payload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -116,15 +145,7 @@ async function getShopeeProductData(productUrl) {
     }
 }
 
-// Função para formatar o preço corretamente para o padrão brasileiro (R$ X.XXX,XX)
-function formatPrice(priceStr) {
-    if (!priceStr) return '0,00';
-    let num = parseFloat(priceStr);
-    if (isNaN(num)) return priceStr;
-    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// Função para gerar a arte promocional com fundo limpo e proporção exata da imagem
+// Função para gerar a arte promocional proporcional e limpa
 async function generatePromotionalArt(productData) {
     console.log('🎨 Gerando arte visual proporcional para:', productData.productName);
     const width = 1080;
@@ -132,7 +153,7 @@ async function generatePromotionalArt(productData) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Fundo totalmente branco e limpo (sem tarjas pretas)
+    // Fundo totalmente branco e limpo
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, width, height);
 
@@ -148,7 +169,6 @@ async function generatePromotionalArt(productData) {
         if (productData.imageUrl) {
             const img = await loadImage(productData.imageUrl);
             
-            // Área reservada para a foto mantendo proporção exata original
             const maxImgWidth = 900;
             const maxImgHeight = 500;
             
@@ -162,14 +182,13 @@ async function generatePromotionalArt(productData) {
             const drawX = (width - drawW) / 2;
             const drawY = 135 + (maxImgHeight - drawH) / 2;
 
-            // Desenha a imagem centralizada e proporcional
             ctx.drawImage(img, drawX, drawY, drawW, drawH);
         }
     } catch (e) {
         console.log('⚠️ Erro ao carregar imagem do produto:', e);
     }
 
-    // Caixa inferior cinza clara para as informações
+    // Caixa inferior para as informações
     ctx.fillStyle = '#F3F4F6';
     ctx.fillRect(60, 660, 960, 360);
 
@@ -181,7 +200,6 @@ async function generatePromotionalArt(productData) {
     if (title.length > 55) title = title.substring(0, 52) + '...';
     ctx.fillText(title, 100, 730);
 
-    // Exibe o preço exato com formatação correta
     const rawPrice = productData.priceMin || productData.priceMax || '0,00';
     const formattedPrice = formatPrice(rawPrice);
 
@@ -189,7 +207,6 @@ async function generatePromotionalArt(productData) {
     ctx.font = 'bold 60px sans-serif';
     ctx.fillText(`R$ ${formattedPrice}`, 100, 830);
 
-    // Botão de chamada para ação
     ctx.fillStyle = '#EE4D2D';
     ctx.fillRect(100, 890, 880, 90);
     ctx.fillStyle = '#FFFFFF';
@@ -225,6 +242,7 @@ bot.on('message', async (msg) => {
         
         const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${formattedPrice}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
 
+    // Mantém o link original limpo que o usuário enviou ou o offerLink gerado
         await bot.sendPhoto(chatId, imageBuffer, {
             caption: caption,
             parse_mode: 'Markdown'

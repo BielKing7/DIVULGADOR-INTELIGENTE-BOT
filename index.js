@@ -44,13 +44,18 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    // Tenta extrair um termo de busca legível do próprio link (ex: Console-PlayStation-5)
+    // Extrai e decodifica os caracteres especiais do link (resolve %C3%A7, etc)
     let searchTerm = "oferta shopee";
     const urlParts = targetUrl.split('?')[0].split('/');
     const cleanSlug = urlParts.find(part => part.includes('-i.'));
     if (cleanSlug) {
-        searchTerm = cleanSlug.split('-i.')[0].replace(/-/g, ' ');
-        console.log(`🧹 Termo de busca extraído do link: "${searchTerm}"`);
+        try {
+            const decodedSlug = decodeURIComponent(cleanSlug);
+            searchTerm = decodedSlug.split('-i.')[0].replace(/-/g, ' ');
+            console.log(`🧹 Termo decodificado com sucesso: "${searchTerm}"`);
+        } catch (e) {
+            searchTerm = cleanSlug.split('-i.')[0].replace(/-/g, ' ');
+        }
     } else {
         const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
         if (matchItem) {

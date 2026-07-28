@@ -3,24 +3,54 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { createCanvas, loadImage } = require('canvas');
 
-// Variáveis de ambiente configuradas no Render (Segurança máxima)
+// Variáveis de ambiente configuradas no Render
 const token = process.env.TELEGRAM_TOKEN;
 const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID;
 const SHOPEE_SECRET = process.env.SHOPEE_SECRET;
 
 if (!token || !SHOPEE_APP_ID || !SHOPEE_SECRET) {
-    console.error('ERRO: Variáveis de ambiente (TELEGRAM_TOKEN, SHOPEE_APP_ID ou SHOPEE_SECRET) não configuradas no Render!');
+    console.error('ERRO: Variáveis de ambiente não configuradas no Render!');
     process.exit(1);
 }
 
 const bot = new TelegramBot(token, { polling: true });
 console.log('🤖 Divulgador Inteligente iniciado com sucesso!');
 
+// Função para expandir link curto (s.shopee.com.br) e pegar o link real
+async function expandShopeeUrl(shortUrl) {
+    try {
+        const response = await axios.get(shortUrl, {
+            maxRedirects: 5,
+            validateStatus: function (status) {
+                return status >= 200 && status < 400;
+            }
+        });
+        return response.request.res.responseUrl || shortUrl;
+    } catch (error) {
+        console.error('Erro ao expandir link:', error.message);
+        return shortUrl;
+    }
+}
+
 // Função para buscar dados do produto na API GraphQL da Shopee
 async function getShopeeProductData(productUrl) {
+    // Se for link encurtado, expande primeiro
+    let targetUrl = productUrl;
+    if (productUrl.includes('s.shopee.com.br')) {
+        targetUrl = await expandShopeeUrl(productUrl);
+    }
+
+    // Tenta extrair termos úteis da URL ou usa a URL limpa para busca
+    let searchTerm = targetUrl;
+    const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
+    if (matchItem) {
+        // Se achou o padrão da Shopee /i.shopid.itemid, podemos buscar pelo ID ou termos
+        searchTerm = `${matchItem[1]} ${matchItem[2]}`;
+    }
+
     const query = `
     query {
-      productV2(keyword: "${productUrl}", limit: 1) {
+      productV2(keyword: "${searchTerm}", limit: 1) {
         nodes {
           itemId
           productName
@@ -37,7 +67,6 @@ async function getShopeeProductData(productUrl) {
     const payload = JSON.stringify({ query });
     const timestamp = Math.floor(Date.now() / 1000).toString();
     
-    // Assinatura de segurança exigida pela Shopee: SHA256(Credential + Timestamp + Payload + Secret)
     const factor = `${SHOPEE_APP_ID}${timestamp}${payload}${SHOPEE_SECRET}`;
     const signature = crypto.createHash('sha256').update(factor).digest('hex');
 
@@ -53,7 +82,12 @@ async function getShopeeProductData(productUrl) {
 
         const data = response.data;
         if (data && data.data && data.data.productV2 && data.data.productV2.nodes.length > 0) {
-            return data.data.productV2.nodes[0];
+            const product = data.data.productV2.nodes[0];
+            // Garante que o link de oferta retornado seja o original enviado ou o de afiliado gerado
+            if (!product.offerLink) {
+                product.offerLink = targetUrl;
+            }
+            return product;
         }
         return null;
     } catch (error) {
@@ -62,18 +96,18 @@ async function getShopeeProductData(productUrl) {
     }
 }
 
-// Função para gerar a arte promocional fixa com a imagem e os dados do produto
+// Função para gerar a arte promocional fixa (1080x1080)
 async function generatePromotionalArt(productData) {
     const width = 1080;
     const height = 1080;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Fundo base escuro e moderno
+    // Fundo base escuro
     ctx.fillStyle = '#111827';
     ctx.fillRect(0, 0, width, height);
 
-    // Header superior (Estilo Shopee)
+    // Header superior Shopee
     ctx.fillStyle = '#EE4D2D'; 
     ctx.fillRect(0, 0, width, 100);
     ctx.fillStyle = '#FFFFFF';
@@ -81,26 +115,23 @@ async function generatePromotionalArt(productData) {
     ctx.textAlign = 'center';
     ctx.fillText('🔥 OFERTA IMPERDÍVEL 🔥', width / 2, 65);
 
-    // Carregar e desenhar a imagem do produto no centro
+    // Imagem do produto
     try {
         if (productData.imageUrl) {
             const img = await loadImage(productData.imageUrl);
-            // Caixa de destaque branca para a foto
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(140, 140, 800, 500);
-            
-            // Desenhar imagem
             ctx.drawImage(img, 160, 160, 760, 460);
         }
     } catch (e) {
         console.log('Erro ao carregar imagem do produto:', e);
     }
 
-    // Caixa inferior para informações (Título e Preço)
+    // Caixa de informações
     ctx.fillStyle = '#1F2937';
     ctx.fillRect(80, 680, 920, 320);
 
-    // Título do Produto
+    // Título
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 32px sans-serif';
     ctx.textAlign = 'left';
@@ -109,13 +140,13 @@ async function generatePromotionalArt(productData) {
     if (title.length > 55) title = title.substring(0, 52) + '...';
     ctx.fillText(title, 120, 740);
 
-    // Preço em destaque verde
+    // Preço
     ctx.fillStyle = '#10B981'; 
     ctx.font = 'bold 55px sans-serif';
     const priceText = `R$ ${productData.priceMin || productData.priceMax || '0,00'}`;
     ctx.fillText(priceText, 120, 840);
 
-    // Botão / Chamada para ação no rodapé
+    // Rodapé / CTA
     ctx.fillStyle = '#EE4D2D';
     ctx.fillRect(120, 890, 840, 80);
     ctx.fillStyle = '#FFFFFF';
@@ -126,21 +157,21 @@ async function generatePromotionalArt(productData) {
     return canvas.toBuffer('image/jpeg');
 }
 
-// Ouvinte de mensagens no Telegram
+// Ouvinte de mensagens do Telegram
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
 
     if (!text || !text.startsWith('http')) {
-        return; // Ignora mensagens que não sejam links
+        return;
     }
 
-    bot.sendMessage(chatId, '🔍 Analisando link e gerando arte personalizada...');
+    bot.sendMessage(chatId, '🔍 Expandindo link e buscando dados na Shopee...');
 
     const product = await getShopeeProductData(text);
     
     if (!product) {
-        bot.sendMessage(chatId, '❌ Não consegui encontrar os dados desse produto. Verifique se o link está correto.');
+        bot.sendMessage(chatId, '❌ Não encontrei o produto na API da Shopee com esse link. Tente enviar o link completo do produto.');
         return;
     }
 

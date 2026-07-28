@@ -31,7 +31,7 @@ bot.on('message', async (msg) => {
     if (!usuariosState[chatId] || usuariosState[chatId].step !== 'POST_STORY') return;
 
     if (!text.startsWith('http')) {
-        bot.sendMessage(chatId, `⚠️ Envie um link válido da Shopee.`);
+        bot.sendMessage(msg.chat.id, `⚠️ Envie um link válido da Shopee.`);
         return;
     }
 
@@ -43,8 +43,6 @@ bot.on('message', async (msg) => {
     let imagemUrl = "";
 
     try {
-        // Exemplo de requisição GraphQL para a API Open da Shopee de Afiliados
-        // Nota: A rota exata do endpoint GraphQL oficial consta no Guia do Usuário do seu painel de afiliado.
         const graphqlQuery = {
             query: `
                 query getProductDetails($url: String!) {
@@ -62,7 +60,7 @@ bot.on('message', async (msg) => {
             headers: {
                 'Content-Type': 'application/json',
                 'AppId': process.env.SHOPEE_APP_ID,
-                'Authorization': `Bearer ${process.env.SHOPEE_SECRET}` // Ou assinatura conforme padrão de auth da API da Shopee
+                'Authorization': `Bearer ${process.env.SHOPEE_SECRET}`
             }
         });
 
@@ -78,12 +76,12 @@ bot.on('message', async (msg) => {
 
     } catch (error) {
         console.error("Erro na API da Shopee:", error.message);
-        bot.sendMessage(chatId, `❌ Não foi possível puxar os dados automaticamente por este link. Verifique se o link está correto.`);
+        bot.sendMessage(chatId, `❌ Não foi possível puxar os dados automaticamente por este link.`);
         return;
     }
 
     try {
-        const bufferArte = awaitgerArtePromocao({
+        const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: precoAtual,
             imageUrl: imagemUrl

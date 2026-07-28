@@ -20,7 +20,7 @@ bot.onText(/\/start/, (msg) => {
 
 bot.onText(/\/poststory/, (msg) => {
     usuariosState[msg.chat.id] = { step: 'POST_STORY' };
-    bot.sendMessage(msg.chat.id, `📱 Envie o link curto de afiliado da Shopee:`);
+    bot.sendMessage(msg.chat.id, `📱 Envie o link curto ou termo de busca da Shopee:`);
 });
 
 bot.on('message', async (msg) => {
@@ -30,30 +30,25 @@ bot.on('message', async (msg) => {
     if (!text || text.startsWith('/')) return;
     if (!usuariosState[chatId] || usuariosState[chatId].step !== 'POST_STORY') return;
 
-    if (!text.startsWith('http')) {
-        bot.sendMessage(msg.chat.id, `⚠️ Envie um link válido da Shopee.`);
-        return;
-    }
+    const termoBusca = text.includes('http') ? "Oferta Shopee" : text;
+    const linkAfiliadoOriginal = text.includes('http') ? text : "https://shopee.com.br";
 
-    const linkAfiliado = text;
-    bot.sendMessage(chatId, `🔄 Consultando dados oficiais na API da Shopee, aguarde...`);
-
-    let tituloProduto = "";
-    let precoAtual = "";
-    let imagemUrl = "";
+    bot.sendMessage(chatId, `🔄 Buscando dados oficiais na API da Shopee, aguarde...`);
 
     try {
+        // Query oficial baseada estritamente na documentação da Shopee (shopeeOfferV2)
         const graphqlQuery = {
             query: `
-                query getProductDetails($url: String!) {
-                    productDetails(shortUrl: $url) {
-                        title
-                        price
-                        imageUrl
+                query {
+                    shopeeOfferV2(keyword: "${termoBusca}", limit: 1) {
+                        nodes {
+                            offerName
+                            imageUrl
+                            offerLink
+                        }
                     }
                 }
-            `,
-            variables: { url: linkAfiliado }
+            `
         };
 
         const respostaApi = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', graphqlQuery, {
@@ -64,32 +59,25 @@ bot.on('message', async (msg) => {
             }
         });
 
-        const dados = respostaApi.data?.data?.productDetails;
+        const dadosProduto = respostaApi.data?.data?.shopeeOfferV2?.nodes?.[0];
 
-        if (dados) {
-            tituloProduto = dados.title;
-            precoAtual = `R$ ${dados.price}`;
-            imagemUrl = dados.imageUrl;
-        } else {
-            throw new Error('Dados não retornados pela API.');
+        if (!dadosProduto) {
+            throw new Error('Nenhum produto retornado pela API.');
         }
 
-    } catch (error) {
-        console.error("Erro na API da Shopee:", error.message);
-        bot.sendMessage(chatId, `❌ Não foi possível puxar os dados automaticamente por este link.`);
-        return;
-    }
+        const tituloProduto = dadosProduto.offerName || "Produto em Promoção";
+        const imagemUrl = dadosProduto.imageUrl;
+        const linkFinal = text.includes('http') ? text : (dadosProduto.offerLink || linkAfiliadoOriginal);
 
-    try {
+        // Gerar a arte via Canvas
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
-            precoAtual: precoAtual,
+            precoAtual: "Imperdível",
             imageUrl: imagemUrl
         });
 
         let captionTexto = `🛍️ *${tituloProduto}*\n\n`;
-        captionTexto += `💥 *Por ${precoAtual}*\n\n`;
-        captionTexto += `🛒 Compre aqui 👉 ${linkAfiliado}\n\n`;
+        captionTexto += `🛒 Compre aqui 👉 ${linkFinal}\n\n`;
         captionTexto += `⚠️ *Promoção sujeita à alteração de preço e estoque do site*`;
 
         await bot.sendPhoto(chatId, bufferArte, {
@@ -97,13 +85,13 @@ bot.on('message', async (msg) => {
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '📱 Abrir Link', url: linkAfiliado }]
+                    [{ text: '📱 Abrir Link', url: linkFinal }]
                 ]
             }
         });
 
-    } catch (err) {
-        console.error("Erro ao gerar arte com canvas:", err);
-        bot.sendMessage(chatId, `❌ Erro ao desenhar a arte do story.`);
+    } catch (error) {
+        console.error("Erro na API da Shopee:", error.response?.data || error.message);
+        bot.sendMessage(chatId, `❌ Erro ao consultar a API da Shopee. Verifique os logs.`);
     }
 });

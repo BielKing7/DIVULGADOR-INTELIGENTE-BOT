@@ -44,7 +44,6 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    // Extrai e decodifica os caracteres especiais do link (resolve %C3%A7, etc)
     let searchTerm = "oferta shopee";
     const urlParts = targetUrl.split('?')[0].split('/');
     const cleanSlug = urlParts.find(part => part.includes('-i.'));
@@ -116,57 +115,75 @@ async function getShopeeProductData(productUrl) {
     }
 }
 
-// Função para gerar a arte promocional fixa (1080x1080)
+// Função para gerar a arte promocional mantendo proporção limpa sem fundo preto
 async function generatePromotionalArt(productData) {
-    console.log('🎨 Gerando arte visual para:', productData.productName);
+    console.log('🎨 Gerando arte visual em proporção correta para:', productData.productName);
     const width = 1080;
     const height = 1080;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = '#111827';
+    // Fundo totalmente branco/limpo para evitar caixas pretas
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, width, height);
 
+    // Topo estilizado da Shopee
     ctx.fillStyle = '#EE4D2D'; 
-    ctx.fillRect(0, 0, width, 100);
+    ctx.fillRect(0, 0, width, 110);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 45px sans-serif';
+    ctx.font = 'bold 46px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('🔥 OFERTA IMPERDÍVEL 🔥', width / 2, 65);
+    ctx.fillText('🔥 OFERTA IMPERDÍVEL NA SHOPEE 🔥', width / 2, 70);
 
     try {
         if (productData.imageUrl) {
             const img = await loadImage(productData.imageUrl);
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(140, 140, 800, 500);
-            ctx.drawImage(img, 160, 160, 760, 460);
+            
+            // Desenha a imagem mantendo a proporção correta centralizada, sem esticar
+            const maxImgWidth = 900;
+            const maxImgHeight = 480;
+            
+            let imgW = img.width;
+            let imgH = img.height;
+            
+            const ratio = Math.min(maxImgWidth / imgW, maxImgHeight / imgH);
+            const drawW = imgW * ratio;
+            const drawH = imgH * ratio;
+            
+            const drawX = (width - drawW) / 2;
+            const drawY = 140 + (maxImgHeight - drawH) / 2;
+
+            ctx.drawImage(img, drawX, drawY, drawW, drawH);
         }
     } catch (e) {
         console.log('⚠️ Erro ao carregar imagem do produto:', e);
     }
 
-    ctx.fillStyle = '#1F2937';
-    ctx.fillRect(80, 680, 920, 320);
+    // Caixa inferior para informações
+    ctx.fillStyle = '#F3F4F6';
+    ctx.fillRect(60, 660, 960, 360);
 
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.fillStyle = '#1F2937';
+    ctx.font = 'bold 34px sans-serif';
     ctx.textAlign = 'left';
     
     let title = productData.productName || 'Produto Shopee';
     if (title.length > 55) title = title.substring(0, 52) + '...';
-    ctx.fillText(title, 120, 740);
+    ctx.fillText(title, 100, 730);
 
-    ctx.fillStyle = '#10B981'; 
-    ctx.font = 'bold 55px sans-serif';
-    const priceText = `R$ ${productData.priceMin || productData.priceMax || '0,00'}`;
-    ctx.fillText(priceText, 120, 840);
+    // Exibe o menor preço disponível (prioriza o preço promocional priceMin)
+    const bestPrice = productData.priceMin || productData.priceMax || '0,00';
+    ctx.fillStyle = '#059669'; 
+    ctx.font = 'bold 60px sans-serif';
+    ctx.fillText(`R$ ${bestPrice}`, 100, 830);
 
+    // Botão de chamada para ação
     ctx.fillStyle = '#EE4D2D';
-    ctx.fillRect(120, 890, 840, 80);
+    ctx.fillRect(100, 890, 880, 90);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px sans-serif';
+    ctx.font = 'bold 32px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('👉 CORRE PRA APROVEITAR NO LINK!', width / 2, 942);
+    ctx.fillText('👉 CLIQUE AQUI E GARANTA O SEU!', width / 2, 948);
 
     return canvas.toBuffer('image/jpeg');
 }
@@ -191,8 +208,9 @@ bot.on('message', async (msg) => {
 
     try {
         const imageBuffer = await generatePromotionalArt(product);
+        const bestPrice = product.priceMin || product.priceMax || '0,00';
         
-        const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${product.priceMin || product.priceMax}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
+        const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${bestPrice}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
 
         await bot.sendPhoto(chatId, imageBuffer, {
             caption: caption,

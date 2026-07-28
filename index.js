@@ -50,8 +50,9 @@ async function getShopeeProductData(productUrl) {
     if (cleanSlug) {
         try {
             const decodedSlug = decodeURIComponent(cleanSlug);
-            searchTerm = decodedSlug.split('-i.')[0].replace(/-/g, ' ');
-            console.log(`🧹 Termo decodificado com sucesso: "${searchTerm}"`);
+            const words = decodedSlug.split('-i.')[0].split('-');
+            searchTerm = words.slice(0, 4).join(' '); 
+            console.log(`🧹 Termo decodificado para busca: "${searchTerm}"`);
         } catch (e) {
             searchTerm = cleanSlug.split('-i.')[0].replace(/-/g, ' ');
         }
@@ -115,15 +116,23 @@ async function getShopeeProductData(productUrl) {
     }
 }
 
-// Função para gerar a arte promocional mantendo proporção limpa sem fundo preto
+// Função para formatar o preço corretamente para o padrão brasileiro (R$ X.XXX,XX)
+function formatPrice(priceStr) {
+    if (!priceStr) return '0,00';
+    let num = parseFloat(priceStr);
+    if (isNaN(num)) return priceStr;
+    return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Função para gerar a arte promocional com fundo limpo e proporção exata da imagem
 async function generatePromotionalArt(productData) {
-    console.log('🎨 Gerando arte visual em proporção correta para:', productData.productName);
+    console.log('🎨 Gerando arte visual proporcional para:', productData.productName);
     const width = 1080;
     const height = 1080;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Fundo totalmente branco/limpo para evitar caixas pretas
+    // Fundo totalmente branco e limpo (sem tarjas pretas)
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, width, height);
 
@@ -139,9 +148,9 @@ async function generatePromotionalArt(productData) {
         if (productData.imageUrl) {
             const img = await loadImage(productData.imageUrl);
             
-            // Desenha a imagem mantendo a proporção correta centralizada, sem esticar
+            // Área reservada para a foto mantendo proporção exata original
             const maxImgWidth = 900;
-            const maxImgHeight = 480;
+            const maxImgHeight = 500;
             
             let imgW = img.width;
             let imgH = img.height;
@@ -151,15 +160,16 @@ async function generatePromotionalArt(productData) {
             const drawH = imgH * ratio;
             
             const drawX = (width - drawW) / 2;
-            const drawY = 140 + (maxImgHeight - drawH) / 2;
+            const drawY = 135 + (maxImgHeight - drawH) / 2;
 
+            // Desenha a imagem centralizada e proporcional
             ctx.drawImage(img, drawX, drawY, drawW, drawH);
         }
     } catch (e) {
         console.log('⚠️ Erro ao carregar imagem do produto:', e);
     }
 
-    // Caixa inferior para informações
+    // Caixa inferior cinza clara para as informações
     ctx.fillStyle = '#F3F4F6';
     ctx.fillRect(60, 660, 960, 360);
 
@@ -171,11 +181,13 @@ async function generatePromotionalArt(productData) {
     if (title.length > 55) title = title.substring(0, 52) + '...';
     ctx.fillText(title, 100, 730);
 
-    // Exibe o menor preço disponível (prioriza o preço promocional priceMin)
-    const bestPrice = productData.priceMin || productData.priceMax || '0,00';
+    // Exibe o preço exato com formatação correta
+    const rawPrice = productData.priceMin || productData.priceMax || '0,00';
+    const formattedPrice = formatPrice(rawPrice);
+
     ctx.fillStyle = '#059669'; 
     ctx.font = 'bold 60px sans-serif';
-    ctx.fillText(`R$ ${bestPrice}`, 100, 830);
+    ctx.fillText(`R$ ${formattedPrice}`, 100, 830);
 
     // Botão de chamada para ação
     ctx.fillStyle = '#EE4D2D';
@@ -208,9 +220,10 @@ bot.on('message', async (msg) => {
 
     try {
         const imageBuffer = await generatePromotionalArt(product);
-        const bestPrice = product.priceMin || product.priceMax || '0,00';
+        const rawPrice = product.priceMin || product.priceMax || '0,00';
+        const formattedPrice = formatPrice(rawPrice);
         
-        const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${bestPrice}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
+        const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${formattedPrice}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
 
         await bot.sendPhoto(chatId, imageBuffer, {
             caption: caption,

@@ -2,6 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const crypto = require('crypto');
 const { createCanvas, loadImage } = require('canvas');
+const http = require('http'); // Necessário para manter a porta aberta no Render
 
 const token = process.env.TELEGRAM_TOKEN;
 const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID;
@@ -11,6 +12,17 @@ if (!token || !SHOPEE_APP_ID || !SHOPEE_SECRET) {
     console.error('ERRO: Variáveis de ambiente não configuradas no Render!');
     process.exit(1);
 }
+
+// Cria um servidor HTTP simples para satisfazer a exigência de porta do Render
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Divulgador Inteligente Bot esta rodando com sucesso!\n');
+});
+
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+    console.log(`🌐 Servidor HTTP interno ouvindo na porta ${PORT}`);
+});
 
 const bot = new TelegramBot(token, { polling: true });
 console.log('🤖 Divulgador Inteligente iniciado e ouvindo mensagens...');
@@ -33,11 +45,10 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    // Extrai o itemID e shopID se o link tiver o padrão da Shopee
     let searchTerm = targetUrl;
     const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
     if (matchItem) {
-        searchTerm = matchItem[2]; // Busca diretamente pelo itemID exato
+        searchTerm = matchItem[2];
         console.log(`🎯 ID do produto extraído com sucesso: ShopID=${matchItem[1]}, ItemID=${matchItem[2]}`);
     }
 
@@ -161,7 +172,7 @@ bot.on('message', async (msg) => {
     const text = msg.text;
 
     if (!text || !text.startsWith('http')) {
-        return; // Ignora mensagens que não começam com link
+        return;
     }
 
     console.log(`📩 Mensagem recebida do chat ${chatId}: ${text}`);

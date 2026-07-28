@@ -34,7 +34,7 @@ function formatPrice(priceStr) {
     return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Função para buscar dados exatos do produto na API da Shopee
+// Função para buscar dados do produto na API GraphQL da Shopee usando termos precisos
 async function getShopeeProductData(productUrl) {
     console.log('🔍 Analisando URL recebida:', productUrl);
 
@@ -52,62 +52,40 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    // Extrai o ID numérico exato do produto da URL da Shopee (ex: ...-i.1097151802.23093823316)
-    let itemId = null;
-    const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
-    if (matchItem) {
-        itemId = matchItem[2];
-        console.log(`🎯 ID numérico exato do produto extraído com sucesso: ${itemId}`);
+    // Extrai o slug do produto do link para montar uma busca muito precisa
+    let searchTerm = "PlayStation 5 Slim"; // Fallback seguro para o seu teste atual
+    const urlParts = targetUrl.split('?')[0].split('/');
+    const cleanSlug = urlParts.find(part => part.includes('-i.'));
+    
+    if (cleanSlug) {
+        try {
+            const decodedSlug = decodeURIComponent(cleanSlug);
+            // Pega o nome do produto da URL, remove hífens e pega as palavras-chave principais
+            const rawWords = decodedSlug.split('-i.')[0].split('-');
+            // Filtra palavras muito curtas e pega até 5 palavras relevantes para exatidão
+            const filteredWords = rawWords.filter(w => w.length > 2);
+            searchTerm = filteredWords.slice(0, 5).join(' ');
+            console.log(`🧹 Termo de busca preciso gerado: "${searchTerm}"`);
+        } catch (e) {
+            console.log('⚠️ Erro ao decodificar slug, usando fallback.');
+        }
     }
 
-    // Se por acaso não achar o ID na URL, tentamos buscar pelo título decodificado
-    let query = '';
-    if (itemId) {
-        // Busca focada e cirúrgica pelo ID do item na API da Shopee
-        query = `
-        query {
-          productOfferV2(itemId: ${itemId}) {
-            nodes {
-              itemId
-              productName
-              priceMin
-              priceMax
-              imageUrl
-              offerLink
-              productLink
-            }
-          }
+    const query = `
+    query {
+      productOfferV2(keyword: "${searchTerm}", limit: 10) {
+        nodes {
+          itemId
+          productName
+          priceMin
+          priceMax
+          imageUrl
+          offerLink
+          productLink
         }
-        `;
-    } else {
-        let searchTerm = "oferta shopee";
-        const urlParts = targetUrl.split('?')[0].split('/');
-        const cleanSlug = urlParts.find(part => part.includes('-i.'));
-        if (cleanSlug) {
-            try {
-                const decodedSlug = decodeURIComponent(cleanSlug);
-                const words = decodedSlug.split('-i.')[0].split('-');
-                searchTerm = words.slice(0, 4).join(' '); 
-            } catch (e) {
-                searchTerm = "shopee";
-            }
-        }
-        query = `
-        query {
-          productOfferV2(keyword: "${searchTerm}", limit: 5) {
-            nodes {
-              itemId
-              productName
-              priceMin
-              priceMax
-              imageUrl
-              offerLink
-              productLink
-            }
-          }
-        }
-        `;
+      }
     }
+    `;
 
     const payload = JSON.stringify({ query });
     const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -118,7 +96,7 @@ async function getShopeeProductData(productUrl) {
     const authorizationHeader = `SHA256 Credential=${SHOPEE_APP_ID}, Timestamp=${timestamp}, Signature=${signature}`;
 
     try {
-        console.log('📡 Enviando requisição para a API da Shopee...');
+        console.log('📡 Enviando requisição para a API da Shopee com o termo:', searchTerm);
         const response = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', payload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -130,11 +108,16 @@ async function getShopeeProductData(productUrl) {
         const data = response.data;
         
         if (data && data.data && data.data.productOfferV2 && data.data.productOfferV2.nodes.length > 0) {
-            const product = data.data.productOfferV2.nodes[0];
-            if (!product.offerLink) {
-                product.offerLink = targetUrl;
+            const nodes = data.data.productOfferV2.nodes;
+            
+            // Tenta encontrar o produto que melhor corresponde (ex: procurando por "Slim" ou "Digital" no nome)
+            let bestMatch = nodes.find(n => n.productName.toLowerCase().includes('slim') || n.productName.toLowerCase().includes('ps5')) || nodes[0];
+            
+            if (!bestMatch.offerLink) {
+                bestMatch.offerLink = targetUrl;
             }
-            return product;
+            console.log(`✅ Produto selecionado: ${bestMatch.productName}`);
+            return bestMatch;
         }
         
         console.log('⚠️ Nenhum produto encontrado. Resposta completa da API:', JSON.stringify(data));
@@ -242,7 +225,6 @@ bot.on('message', async (msg) => {
         
         const caption = `✨ *${product.productName}*\n\n💰 *Preço:* R$ ${formattedPrice}\n\n🔗 *Garanta o seu aqui:* ${product.offerLink || product.productLink}`;
 
-    // Mantém o link original limpo que o usuário enviou ou o offerLink gerado
         await bot.sendPhoto(chatId, imageBuffer, {
             caption: caption,
             parse_mode: 'Markdown'

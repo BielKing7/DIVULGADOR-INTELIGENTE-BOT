@@ -26,7 +26,7 @@ server.listen(PORT, () => {
 const bot = new TelegramBot(token, { polling: true });
 console.log('🤖 Divulgador Inteligente iniciado e ouvindo mensagens...');
 
-// Função para buscar dados do produto na API GraphQL da Shopee corrigida
+// Função para buscar dados do produto na API GraphQL da Shopee
 async function getShopeeProductData(productUrl) {
     console.log('🔍 Analisando URL recebida:', productUrl);
 
@@ -44,17 +44,24 @@ async function getShopeeProductData(productUrl) {
         }
     }
 
-    let searchTerm = targetUrl;
-    const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
-    if (matchItem) {
-        searchTerm = matchItem[2];
-        console.log(`🎯 ID do produto extraído com sucesso: ShopID=${matchItem[1]}, ItemID=${matchItem[2]}`);
+    // Tenta extrair um termo de busca legível do próprio link (ex: Console-PlayStation-5)
+    let searchTerm = "oferta shopee";
+    const urlParts = targetUrl.split('?')[0].split('/');
+    const cleanSlug = urlParts.find(part => part.includes('-i.'));
+    if (cleanSlug) {
+        searchTerm = cleanSlug.split('-i.')[0].replace(/-/g, ' ');
+        console.log(`🧹 Termo de busca extraído do link: "${searchTerm}"`);
+    } else {
+        const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
+        if (matchItem) {
+            searchTerm = matchItem[2];
+            console.log(`🎯 ID numérico extraído: ${searchTerm}`);
+        }
     }
 
-    // CORRIGIDO: Utilizando productOfferV2 conforme exigido pela API da Shopee Brasil
     const query = `
     query {
-      productOfferV2(keyword: "${searchTerm}", limit: 1) {
+      productOfferV2(keyword: "${searchTerm}", limit: 5) {
         nodes {
           itemId
           productName
@@ -77,7 +84,7 @@ async function getShopeeProductData(productUrl) {
     const authorizationHeader = `SHA256 Credential=${SHOPEE_APP_ID}, Timestamp=${timestamp}, Signature=${signature}`;
 
     try {
-        console.log('📡 Enviando requisição para a API da Shopee...');
+        console.log('📡 Enviando requisição para a API da Shopee com o termo:', searchTerm);
         const response = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', payload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -96,7 +103,7 @@ async function getShopeeProductData(productUrl) {
             return product;
         }
         
-        console.log('⚠️ Nenhum produto encontrado nos nós da resposta:', JSON.stringify(data));
+        console.log('⚠️ Nenhum produto encontrado. Resposta completa da API:', JSON.stringify(data));
         return null;
     } catch (error) {
         console.error('❌ Erro na API da Shopee:', error.response?.data || error.message);
@@ -186,7 +193,7 @@ bot.on('message', async (msg) => {
             caption: caption,
             parse_mode: 'Markdown'
         });
-        console.log('✅ Arte enviada com sucesso para el Telegram!');
+        console.log('✅ Arte enviada com sucesso para o Telegram!');
     } catch (error) {
         console.error('❌ Erro ao gerar/enviar arte:', error);
         await bot.sendMessage(chatId, '❌ Ocorreu um erro ao gerar a imagem do produto.');

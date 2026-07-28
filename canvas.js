@@ -1,82 +1,62 @@
 const { createCanvas, loadImage } = require('canvas');
-const path = require('path');
 
-async function gerarArtePromocaoFixa(product) {
-    const width = 1080;
-    const height = 1920;
-    const canvas = createCanvas(width, height);
+async function gerarArtePromocao(dados) {
+    // Cria a base da imagem (exemplo formato story: 1080x1920)
+    const largura = 1080;
+    const altura = 1920;
+    const canvas = createCanvas(largura, altura);
     const ctx = canvas.getContext('2d');
 
-    // 1. Carrega a moldura fixa de fundo
+    // Fundo padrão (você pode carregar uma imagem de fundo fixa se preferir)
+    ctx.fillStyle = '#ee4d2d'; // Cor padrão Shopee
+    ctx.fillRect(0, 0, largura, altura);
+
+    // Caixa branca central para destacar o produto
+    ctx.fillStyle = '#ffffff';
+    ctx.roundRect(90, 300, 900, 1300, 40);
+    ctx.fill();
+
     try {
-        const caminhoFundo = path.join(__dirname, 'fundo-story.png');
-        const imagemFundo = await loadImage(caminhoFundo);
-        ctx.drawImage(imagemFundo, 0, 0, width, height);
-    } catch (e) {
-        ctx.fillStyle = '#8A2BE2';
-        ctx.fillRect(0, 0, width, height);
-    }
-
-    const boxX = 110;
-    const boxY = 175;
-    const boxW = 860;
-
-    // 2. Desenha a foto real do produto capturada do link curto
-    const imgSize = 540;
-    const imgX = boxX + (boxW - imgSize) / 2;
-    const imgY = boxY + 25;
-
-    if (product.imageUrl) {
-        try {
-            const productImage = await loadImage(product.imageUrl);
-            ctx.drawImage(productImage, imgX, imgY, imgSize, imgSize);
-        } catch (e) {
-            console.log("Erro ao carregar imagem da web.");
+        // Carrega a imagem do produto vinda da API oficial da Shopee
+        if (dados.imageUrl) {
+            const imagemProduto = await loadImage(dados.imageUrl);
+            // Desenha a imagem centralizada na arte
+            ctx.drawImage(imagemProduto, 190, 380, 700, 700);
         }
+    } catch (e) {
+        console.error("Erro ao carregar imagem do produto no Canvas:", e.message);
     }
 
-    // 3. Título do Produto
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#111111';
-    ctx.font = 'bold 42px sans-serif';
+    // Escreve o Título do Produto obtido pela API
+    ctx.fillStyle = '#222222';
+    ctx.font = 'bold 36px sans-serif';
     
-    let titulo = product.title || "Produto em Promoção";
-    let linhasTitulo = quebrarTexto(ctx, titulo, boxW - 80);
-    let currentY = boxY + 610;
-    
-    for (let linha of linhasTitulo.slice(0, 2)) {
-        ctx.fillText(linha, 540, currentY);
-        currentY += 50;
-    }
+    // Função para quebrar o texto em várias linhas se for muito longo
+    desenharTextoMut说到(ctx, dados.title || "Oferta Imperdível", 140, 1150, 800, 48);
 
-    // 4. Preço Atual na Pílula Roxa Inferior
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 50px sans-serif';
-    ctx.textAlign = 'center';
-    let precoExibir = product.precoAtual || 'R$ 139,90';
-    ctx.fillText(precoExibir, 540, 1420); // Coordenada ajustada para a pílula roxa de preço
-
+    // Retorna o buffer da imagem pronta
     return canvas.toBuffer('image/png');
 }
 
-function quebrarTexto(ctx, texto, larguraMaxima) {
-    let palavras = texto.split(' ');
-    let linhas = [];
-    if (palavras.length === 0) return [''];
-    let linhaAtual = palavras[0];
+function desenharTextoMut说到(ctx, texto, x, y, larguraMaxima, alturaLinha) {
+    const palavras = texto.split(' ');
+    let linha = '';
+    let posY = y;
 
-    for (let i = 1; i < palavras.length; i++) {
-        let palavraTeste = linhaAtual + ' ' + palavras[i];
-        let medicao = ctx.measureText(palavraTeste);
-        if (medicao.width < larguraMaxima) {
-            linhaAtual = palavraTeste;
+    for (let n = 0; n < palavras.length; n++) {
+        const testeLinha = linha + palavras[n] + ' ';
+        const metricas = ctx.measureText(testeLinha);
+        const testeLargura = metricas.width;
+
+        if (testeLargura > larguraMaxima && n > 0) {
+            ctx.fillText(linha, x, posY);
+            linha = palavras[n] + ' ';
+            posY += alturaLinha;
         } else {
-            linhas.push(linhaAtual);
-            linhaAtual = palavras[i];
+            linha = testeLinha;
         }
     }
-    linhas.push(linhaAtual);
-    return linhas;
+    ctx.fillText(linha, x, posY);
 }
 
-module.exports = { gerarArtePromocao: gerarArtePromocaoFixa };
+module.exports = { gerarArtePromocao };

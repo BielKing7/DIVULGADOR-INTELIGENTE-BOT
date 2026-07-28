@@ -1,41 +1,26 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 const { gerarArtePromocao } = require('./canvas');
-
-// --- CONFIGURAÇÃO DO FIREBASE ADMIN ---
-const { initializeApp, cert } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
-initializeApp({
-  credential: cert(serviceAccount)
-});
-const db = getFirestore();
-// -------------------------------------
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Divulgador Inteligente Bot está online! 🚀'));
+app.get('/', (req, res) => res.send('Bot com API Shopee online! 🚀'));
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
 const usuariosState = {};
 
-bot.onText(/\/start/, async (msg) => {
-    const chatId = msg.chat.id;
-    usuariosState[chatId] = { step: 'AUTENTICADO' };
-    bot.sendMessage(chatId, `🤖 Bot online! Envie /poststory para começar.`);
+bot.onText(/\/start/, (msg) => {
+    bot.sendMessage(msg.chat.id, `🤖 Bot com API Oficial da Shopee ativo! Envie /poststory para começar.`);
 });
 
 bot.onText(/\/poststory/, (msg) => {
-    const chatId = msg.chat.id;
-    usuariosState[chatId] = { step: 'POST_STORY' };
-    bot.sendMessage(chatId, `📱 Envie o seu link curto de afiliado da Shopee agora:`);
+    usuariosState[msg.chat.id] = { step: 'POST_STORY' };
+    bot.sendMessage(msg.chat.id, `📱 Envie o link curto de afiliado da Shopee:`);
 });
 
 bot.on('message', async (msg) => {
@@ -43,85 +28,62 @@ bot.on('message', async (msg) => {
     const text = msg.text;
 
     if (!text || text.startsWith('/')) return;
-
-    const estado = usuariosState[chatId];
-    if (!estado || estado.step !== 'POST_STORY') return;
+    if (!usuariosState[chatId] || usuariosState[chatId].step !== 'POST_STORY') return;
 
     if (!text.startsWith('http')) {
-        bot.sendMessage(chatId, `⚠️ Por favor, envie um link válido.`);
+        bot.sendMessage(chatId, `⚠️ Envie um link válido da Shopee.`);
         return;
     }
 
     const linkAfiliado = text;
-    bot.sendMessage(chatId, `🔄 Rastreando link da Shopee e capturando imagem do produto, aguarde...`);
+    bot.sendMessage(chatId, `🔄 Consultando dados oficiais na API da Shopee, aguarde...`);
 
-    let tituloProduto = "Produto em Promoção";
-    let precoAtual = "R$ 99,90";
+    let tituloProduto = "";
+    let precoAtual = "";
     let imagemUrl = "";
 
-    let browser = null;
     try {
-        // Inicializa o navegador em modo leve, otimizado para servidores
-        browser = await puppeteer.launch({
-            headless: 'new',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu',
-                '--window-size=1280,800'
-            ]
-        });
+        // Exemplo de requisição GraphQL para a API Open da Shopee de Afiliados
+        // Nota: A rota exata do endpoint GraphQL oficial consta no Guia do Usuário do seu painel de afiliado.
+        const graphqlQuery = {
+            query: `
+                query getProductDetails($url: String!) {
+                    productDetails(shortUrl: $url) {
+                        title
+                        price
+                        imageUrl
+                    }
+                }
+            `,
+            variables: { url: linkAfiliado }
+        };
 
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-        
-        // Acessa o link curto e aguarda o redirecionamento final da Shopee
-        await page.goto(linkAfiliado, { waitUntil: 'networkidle2', timeout: 30000 });
-
-        // Aguarda um instante para garantir a estabilização da página
-        await new Promise(r => setTimeout(r, 2000));
-
-        // Extrai as meta tags oficiais (`og:image`, `og:title`, etc.) da página final
-        const dadosProduto = await page.evaluate(() => {
-            const getMeta = (prop) => {
-                const el = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop}"]`);
-                return el ? el.getAttribute('content') : null;
-            };
-
-            return {
-                title: getMeta('og:title') || document.title,
-                image: getMeta('og:image'),
-                description: getMeta('og:description')
-            };
-        });
-
-        if (dadosProduto.title) {
-            tituloProduto = dadosProduto.title.replace(' | Shopee Brasil', '').trim();
-        }
-
-        if (dadosProduto.image) {
-            imagemUrl = dadosProduto.image;
-        }
-
-        if (dadosProduto.description) {
-            const matchPreco = dadosProduto.description.match(/R\$\s?[\d.,]+/);
-            if (matchPreco) {
-                precoAtual = matchPreco[0];
+        const respostaApi = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', graphqlQuery, {
+            headers: {
+                'Content-Type': 'application/json',
+                'AppId': process.env.SHOPEE_APP_ID,
+                'Authorization': `Bearer ${process.env.SHOPEE_SECRET}` // Ou assinatura conforme padrão de auth da API da Shopee
             }
+        });
+
+        const dados = respostaApi.data?.data?.productDetails;
+
+        if (dados) {
+            tituloProduto = dados.title;
+            precoAtual = `R$ ${dados.price}`;
+            imagemUrl = dados.imageUrl;
+        } else {
+            throw new Error('Dados não retornados pela API.');
         }
 
     } catch (error) {
-        console.error("Erro ao usar Puppeteer:", error);
-    } finally {
-        if (browser) {
-            await browser.close(); // Fecha o navegador para liberar a memória do servidor
-        }
+        console.error("Erro na API da Shopee:", error.message);
+        bot.sendMessage(chatId, `❌ Não foi possível puxar os dados automaticamente por este link. Verifique se o link está correto.`);
+        return;
     }
 
     try {
-        const bufferArte = await gerarArtePromocao({
+        const bufferArte = awaitgerArtePromocao({
             title: tituloProduto,
             precoAtual: precoAtual,
             imageUrl: imagemUrl
@@ -137,14 +99,13 @@ bot.on('message', async (msg) => {
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: '📢 Publicar no site', callback_data: 'publicar_site' }],
                     [{ text: '📱 Abrir Link', url: linkAfiliado }]
                 ]
             }
         });
 
-    } catch (error) {
-        console.error("Erro ao gerar arte:", error);
-        bot.sendMessage(chatId, `❌ Erro ao gerar a arte com a imagem.`);
+    } catch (err) {
+        console.error("Erro ao gerar arte com canvas:", err);
+        bot.sendMessage(chatId, `❌ Erro ao desenhar a arte do story.`);
     }
 });

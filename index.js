@@ -3,7 +3,6 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { createCanvas, loadImage } = require('canvas');
 
-// Variáveis de ambiente configuradas no Render
 const token = process.env.TELEGRAM_TOKEN;
 const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID;
 const SHOPEE_SECRET = process.env.SHOPEE_SECRET;
@@ -14,38 +13,32 @@ if (!token || !SHOPEE_APP_ID || !SHOPEE_SECRET) {
 }
 
 const bot = new TelegramBot(token, { polling: true });
-console.log('🤖 Divulgador Inteligente iniciado com sucesso!');
-
-// Função para expandir link curto (s.shopee.com.br) e pegar o link real
-async function expandShopeeUrl(shortUrl) {
-    try {
-        const response = await axios.get(shortUrl, {
-            maxRedirects: 5,
-            validateStatus: function (status) {
-                return status >= 200 && status < 400;
-            }
-        });
-        return response.request.res.responseUrl || shortUrl;
-    } catch (error) {
-        console.error('Erro ao expandir link:', error.message);
-        return shortUrl;
-    }
-}
+console.log('🤖 Divulgador Inteligente iniciado e ouvindo mensagens...');
 
 // Função para buscar dados do produto na API GraphQL da Shopee
 async function getShopeeProductData(productUrl) {
-    // Se for link encurtado, expande primeiro
+    console.log('🔍 Analisando URL recebida:', productUrl);
+
     let targetUrl = productUrl;
     if (productUrl.includes('s.shopee.com.br')) {
-        targetUrl = await expandShopeeUrl(productUrl);
+        try {
+            const response = await axios.get(productUrl, {
+                maxRedirects: 5,
+                validateStatus: (status) => status >= 200 && status < 400
+            });
+            targetUrl = response.request.res.responseUrl || productUrl;
+            console.log('🔗 Link expandido:', targetUrl);
+        } catch (error) {
+            console.log('⚠️ Não foi possível expandir o link curto, usando original:', error.message);
+        }
     }
 
-    // Tenta extrair termos úteis da URL ou usa a URL limpa para busca
+    // Extrai o itemID e shopID se o link tiver o padrão da Shopee
     let searchTerm = targetUrl;
     const matchItem = targetUrl.match(/\/i\.(\d+)\.(\d+)/);
     if (matchItem) {
-        // Se achou o padrão da Shopee /i.shopid.itemid, podemos buscar pelo ID ou termos
-        searchTerm = `${matchItem[1]} ${matchItem[2]}`;
+        searchTerm = matchItem[2]; // Busca diretamente pelo itemID exato
+        console.log(`🎯 ID do produto extraído com sucesso: ShopID=${matchItem[1]}, ItemID=${matchItem[2]}`);
     }
 
     const query = `
@@ -73,6 +66,7 @@ async function getShopeeProductData(productUrl) {
     const authorizationHeader = `SHA256 Credential=${SHOPEE_APP_ID}, Timestamp=${timestamp}, Signature=${signature}`;
 
     try {
+        console.log('📡 Enviando requisição para a API da Shopee...');
         const response = await axios.post('https://open-api.affiliate.shopee.com.br/graphql', payload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -80,24 +74,28 @@ async function getShopeeProductData(productUrl) {
             }
         });
 
+        console.log('📥 Resposta recebida da Shopee com sucesso.');
         const data = response.data;
+        
         if (data && data.data && data.data.productV2 && data.data.productV2.nodes.length > 0) {
             const product = data.data.productV2.nodes[0];
-            // Garante que o link de oferta retornado seja o original enviado ou o de afiliado gerado
             if (!product.offerLink) {
                 product.offerLink = targetUrl;
             }
             return product;
         }
+        
+        console.log('⚠️ Nenhum produto encontrado nos nós da resposta:', JSON.stringify(data));
         return null;
     } catch (error) {
-        console.error('Erro na API da Shopee:', error.response?.data || error.message);
+        console.error('❌ Erro na API da Shopee:', error.response?.data || error.message);
         return null;
     }
 }
 
 // Função para gerar a arte promocional fixa (1080x1080)
 async function generatePromotionalArt(productData) {
+    console.log('🎨 Gerando arte visual para:', productData.productName);
     const width = 1080;
     const height = 1080;
     const canvas = createCanvas(width, height);
@@ -124,7 +122,7 @@ async function generatePromotionalArt(productData) {
             ctx.drawImage(img, 160, 160, 760, 460);
         }
     } catch (e) {
-        console.log('Erro ao carregar imagem do produto:', e);
+        console.log('⚠️ Erro ao carregar imagem do produto:', e);
     }
 
     // Caixa de informações
@@ -163,15 +161,16 @@ bot.on('message', async (msg) => {
     const text = msg.text;
 
     if (!text || !text.startsWith('http')) {
-        return;
+        return; // Ignora mensagens que não começam com link
     }
 
-    bot.sendMessage(chatId, '🔍 Expandindo link e buscando dados na Shopee...');
+    console.log(`📩 Mensagem recebida do chat ${chatId}: ${text}`);
+    await bot.sendMessage(chatId, '🔍 Analisando link e buscando dados na Shopee...');
 
     const product = await getShopeeProductData(text);
     
     if (!product) {
-        bot.sendMessage(chatId, '❌ Não encontrei o produto na API da Shopee com esse link. Tente enviar o link completo do produto.');
+        await bot.sendMessage(chatId, '❌ Não encontrei o produto na API da Shopee com esse link.');
         return;
     }
 
@@ -184,8 +183,9 @@ bot.on('message', async (msg) => {
             caption: caption,
             parse_mode: 'Markdown'
         });
+        console.log('✅ Arte enviada com sucesso para o Telegram!');
     } catch (error) {
-        console.error('Erro ao gerar/enviar arte:', error);
-        bot.sendMessage(chatId, '❌ Ocorreu um erro ao gerar a imagem do produto.');
+        console.error('❌ Erro ao gerar/enviar arte:', error);
+        await bot.sendMessage(chatId, '❌ Ocorreu um erro ao gerar a imagem do produto.');
     }
 });

@@ -40,7 +40,6 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId, `🔄 Analisando o link e gerando sua arte de divulgação...`);
 
     try {
-        // Segue o redirecionamento do link curto da Shopee para capturar os dados reais do produto
         const resposta = await axios.get(linkAfiliado, {
             maxRedirects: 5,
             headers: {
@@ -50,7 +49,7 @@ bot.on('message', async (msg) => {
 
         const $ = cheerio.load(resposta.data);
 
-        // Extrai o título e a imagem oficial do produto através das meta tags da página
+        // Extrai o título e a imagem oficial do produto através do Cheerio
         const tituloProduto = $('meta[property="og:title"]').attr('content') || $('title').text() || "Oferta Imperdível na Shopee";
         const imagemUrl = $('meta[property="og:image"]').attr('content');
 
@@ -58,7 +57,7 @@ bot.on('message', async (msg) => {
             throw new Error('Não foi possível localizar a imagem do produto neste link.');
         }
 
-        // Gera a arte fixa com o título e a foto capturados
+        // Gera a arte fixa com os dados capturados
         const bufferArte = await gerarArtePromocao({
             title: tituloProduto,
             precoAtual: "Imperdível",

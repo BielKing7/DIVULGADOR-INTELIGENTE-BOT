@@ -1,5 +1,6 @@
 const { createCanvas, loadImage } = require("canvas");
 const axios = require("axios");
+const FormData = require("form-data");
 const path = require("path");
 
 const WIDTH = 1080;

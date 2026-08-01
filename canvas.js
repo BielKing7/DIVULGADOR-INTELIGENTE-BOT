@@ -32,16 +32,52 @@ async function gerarArte(produto) {
     );
 
     const resposta = await axios.get(
-        produto.imagem,
+    produto.imagem,
+    {
+        responseType: "arraybuffer",
+        timeout: 15000
+    }
+);
+
+let bufferImagem = Buffer.from(resposta.data);
+
+try {
+
+    const form = new FormData();
+
+    form.append("file", bufferImagem, "produto.png");
+
+    const respostaSemFundo = await axios.post(
+
+        process.env.REMOVE_BG_API,
+
+        form,
+
         {
+
+            headers: form.getHeaders(),
+
             responseType: "arraybuffer",
-            timeout: 15000
+
+            timeout: 60000
+
         }
+
     );
 
-    const imagem = await loadImage(
-        Buffer.from(resposta.data)
-    );
+    bufferImagem = Buffer.from(respostaSemFundo.data);
+
+    console.log("✅ Fundo removido com sucesso.");
+
+} catch (erro) {
+
+    console.log("⚠ Não foi possível remover o fundo.");
+
+    console.log(erro.message);
+
+}
+
+const imagem = await loadImage(bufferImagem);
 
     ctx.fillStyle = "#FFFFFF";
 

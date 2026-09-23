@@ -7,10 +7,10 @@ const WIDTH = 1080;
 const HEIGHT = 1920;
 
 const FOTO = {
-    x: 180,
-    y: 180,
-    largura: 720,
-    altura: 720
+    x: 100,
+    y: 330,
+    largura: 860,
+    altura: 1100
 };
 
 async function gerarArte(produto) {

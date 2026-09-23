@@ -8,9 +8,9 @@ const HEIGHT = 1920;
 
 const FOTO = {
     x: 100,
-    y: 330,
+    y: 350,
     largura: 860,
-    altura: 1100
+    altura: 650
 };
 
 async function gerarArte(produto) {
@@ -193,7 +193,7 @@ if (linhas.length > 3) {
 
 }
 
-let yTexto = 955;
+let yTexto = FOTO.y + FOTO.altura + 60;
 
 for (const linha of linhas) {
 
@@ -224,7 +224,7 @@ ctx.fillText(
 
     WIDTH / 2,
 
-    1170
+    yTexto + 40
 
 );
 

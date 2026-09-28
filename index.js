@@ -3,11 +3,13 @@ require("dotenv").config();
 
 const express = require("express");
 const crypto = require("crypto");
+const path = require("path");
 const TelegramBot = require("node-telegram-bot-api");
 
 const {
     obterProdutoShopee,
-    pesquisarProdutosShopee
+    pesquisarProdutosShopee,
+    ORDENACOES
 } = require("./shopee");
 
 const { gerarArte } = require("./canvas");
@@ -43,7 +45,9 @@ app.use(express.json({
 }));
 
 app.use(
-    express.static("Public")
+    express.static(
+        path.join(__dirname, "public")
+    )
 );
 
 app.get("/", (req, res) => {
@@ -68,9 +72,8 @@ function autenticarMiniApp(req, res, next) {
     }
 
     try {
-        const parametros = new URLSearchParams(
-            initData
-        );
+        const parametros =
+            new URLSearchParams(initData);
 
         const hashRecebido =
             parametros.get("hash");
@@ -84,38 +87,33 @@ function autenticarMiniApp(req, res, next) {
 
         parametros.delete("hash");
 
-        const dadosOrdenados = [
+        const dataCheckString = [
             ...parametros.entries()
-        ].sort((a, b) => {
-            return a[0].localeCompare(b[0]);
-        });
-
-        const dataCheckString = dadosOrdenados
+        ]
+            .sort((a, b) => {
+                return a[0] < b[0]
+                    ? -1
+                    : a[0] > b[0]
+                        ? 1
+                        : 0;
+            })
             .map(([chave, valor]) => {
                 return `${chave}=${valor}`;
             })
             .join("\n");
 
         const chaveSecreta = crypto
-            .createHmac(
-                "sha256",
-                "WebAppData"
-            )
+            .createHmac("sha256", "WebAppData")
             .update(BOT_TOKEN)
             .digest();
 
         const hashCalculado = crypto
-            .createHmac(
-                "sha256",
-                chaveSecreta
-            )
+            .createHmac("sha256", chaveSecreta)
             .update(dataCheckString)
             .digest();
 
-        const hashInformado = Buffer.from(
-            hashRecebido,
-            "hex"
-        );
+        const hashInformado =
+            Buffer.from(hashRecebido, "hex");
 
         if (
             hashInformado.length !==
@@ -137,18 +135,15 @@ function autenticarMiniApp(req, res, next) {
             parametros.get("auth_date")
         );
 
-        const agora = Math.floor(
-            Date.now() / 1000
-        );
+        const agora =
+            Math.floor(Date.now() / 1000);
 
         if (
             !Number.isFinite(authDate) ||
             authDate > agora + 60 ||
             agora - authDate > 86400
         ) {
-            throw new Error(
-                "Sessão expirada."
-            );
+            throw new Error("Sessão expirada.");
         }
 
         const usuario = JSON.parse(
@@ -159,9 +154,7 @@ function autenticarMiniApp(req, res, next) {
             !Number.isSafeInteger(usuario.id) ||
             usuario.id <= 0
         ) {
-            throw new Error(
-                "Usuário inválido."
-            );
+            throw new Error("Usuário inválido.");
         }
 
         req.usuarioTelegram = usuario;
@@ -176,7 +169,7 @@ function autenticarMiniApp(req, res, next) {
 
         return res.status(401).json({
             erro:
-                "Sua sessão expirou ou é inválida. " +
+                "Sessão inválida ou expirada. " +
                 "Feche a vitrine e abra novamente pelo bot."
         });
     }
@@ -186,10 +179,7 @@ function autenticarMiniApp(req, res, next) {
 // FUNÇÕES AUXILIARES
 // =====================================================
 
-async function apagarMensagem(
-    chatId,
-    mensagem
-) {
+async function apagarMensagem(chatId, mensagem) {
     if (!mensagem) return;
 
     try {
@@ -213,10 +203,7 @@ function criarLegendaArte(produto) {
     );
 }
 
-async function enviarArte(
-    chatId,
-    produto
-) {
+async function enviarArte(chatId, produto) {
     let mensagemProcessando;
 
     try {
@@ -226,16 +213,13 @@ async function enviarArte(
                 "🎨 Gerando a arte do produto..."
             );
 
-        const imagem = await gerarArte(
-            produto
-        );
+        const imagem = await gerarArte(produto);
 
         await bot.sendPhoto(
             chatId,
             imagem,
             {
-                caption:
-                    criarLegendaArte(produto)
+                caption: criarLegendaArte(produto)
             }
         );
 
@@ -263,15 +247,10 @@ async function enviarArte(
 }
 
 function criarUrlVitrine(termo = "") {
-    const url = new URL(
-        MINI_APP_URL
-    );
+    const url = new URL(MINI_APP_URL);
 
     if (termo) {
-        url.searchParams.set(
-            "termo",
-            termo
-        );
+        url.searchParams.set("termo", termo);
     }
 
     return url.toString();
@@ -293,14 +272,9 @@ async function enviarBotaoVitrine(
                 inline_keyboard: [
                     [
                         {
-                            text:
-                                "🛍️ Abrir vitrine",
-
+                            text: "🛍️ Abrir vitrine",
                             web_app: {
-                                url:
-                                    criarUrlVitrine(
-                                        termo
-                                    )
+                                url: criarUrlVitrine(termo)
                             }
                         }
                     ]
@@ -311,6 +285,89 @@ async function enviarBotaoVitrine(
 }
 
 // =====================================================
+// VALIDAR FILTROS DA PESQUISA
+// =====================================================
+
+function lerPreco(valor, nome) {
+    if (
+        valor === undefined ||
+        valor === null ||
+        valor === ""
+    ) {
+        return null;
+    }
+
+    const preco = Number(valor);
+
+    if (
+        !Number.isFinite(preco) ||
+        preco < 0
+    ) {
+        throw new Error(
+            `${nome} inválido.`
+        );
+    }
+
+    return preco;
+}
+
+function obterOpcoesPesquisa(query) {
+    const ordenacao =
+        String(query.ordenacao || "relevancia");
+
+    if (
+        !Object.prototype.hasOwnProperty.call(
+            ORDENACOES,
+            ordenacao
+        )
+    ) {
+        throw new Error(
+            "Opção de ordenação inválida."
+        );
+    }
+
+    const precoMinimo = lerPreco(
+        query.precoMinimo,
+        "Preço mínimo"
+    );
+
+    const precoMaximo = lerPreco(
+        query.precoMaximo,
+        "Preço máximo"
+    );
+
+    if (
+        precoMinimo !== null &&
+        precoMaximo !== null &&
+        precoMinimo > precoMaximo
+    ) {
+        throw new Error(
+            "O preço mínimo não pode ser maior que o máximo."
+        );
+    }
+
+    const valorOficiais =
+        String(query.somenteOficiais || "false");
+
+    if (
+        valorOficiais !== "true" &&
+        valorOficiais !== "false"
+    ) {
+        throw new Error(
+            "Filtro de lojas oficiais inválido."
+        );
+    }
+
+    return {
+        ordenacao,
+        precoMinimo,
+        precoMaximo,
+        somenteOficiais:
+            valorOficiais === "true"
+    };
+}
+
+// =====================================================
 // API: PESQUISAR PRODUTOS
 // =====================================================
 
@@ -318,17 +375,14 @@ app.get(
     "/api/produtos",
     autenticarMiniApp,
     async (req, res) => {
-        const termo = String(
-            req.query.termo || ""
-        ).trim();
+        const termo =
+            String(req.query.termo || "").trim();
 
-        const page = Number(
-            req.query.page || 1
-        );
+        const page =
+            Number(req.query.page || 1);
 
-        const limit = Number(
-            req.query.limit || 20
-        );
+        const limit =
+            Number(req.query.limit || 20);
 
         if (
             !termo ||
@@ -362,6 +416,19 @@ app.get(
             });
         }
 
+        let opcoes;
+
+        try {
+            opcoes = obterOpcoesPesquisa(
+                req.query
+            );
+
+        } catch (erro) {
+            return res.status(400).json({
+                erro: erro.message
+            });
+        }
+
         try {
             const resultado =
                 await pesquisarProdutosShopee(
@@ -369,7 +436,8 @@ app.get(
                     APP_ID,
                     APP_SECRET,
                     page,
-                    limit
+                    limit,
+                    opcoes
                 );
 
             return res.json({
@@ -377,7 +445,12 @@ app.get(
                     resultado.produtos,
 
                 pageInfo:
-                    resultado.pageInfo
+                    resultado.pageInfo,
+
+                ordenacao:
+                    resultado.ordenacao,
+
+                filtros: opcoes
             });
 
         } catch (erro) {
@@ -405,13 +478,11 @@ app.post(
         const chatId =
             req.usuarioTelegram.id;
 
-        const shopId = String(
-            req.body.shopId || ""
-        );
+        const shopId =
+            String(req.body?.shopId || "");
 
-        const itemId = String(
-            req.body.itemId || ""
-        );
+        const itemId =
+            String(req.body?.itemId || "");
 
         if (
             !/^\d{1,20}$/.test(shopId) ||
@@ -436,8 +507,6 @@ app.post(
 
         artesEmAndamento.add(chatId);
 
-        // Responde imediatamente ao Mini App.
-        // A arte será enviada na conversa do Telegram.
         res.status(202).json({
             sucesso: true,
             mensagem:
@@ -479,9 +548,7 @@ app.post(
             }
 
         } finally {
-            artesEmAndamento.delete(
-                chatId
-            );
+            artesEmAndamento.delete(chatId);
         }
     }
 );
@@ -493,8 +560,7 @@ app.post(
 bot.onText(
     /^\/start(?:@\w+)?$/,
     async (msg) => {
-        const chatId =
-            msg.chat.id;
+        const chatId = msg.chat.id;
 
         await bot.sendMessage(
             chatId,
@@ -516,17 +582,14 @@ Pesquise produtos na nossa vitrine interativa.
 ✨ Escolha seus produtos e gere suas artes automaticamente!`,
 
             {
-                parse_mode:
-                    "Markdown"
+                parse_mode: "Markdown"
             }
         );
 
         if (
             msg.chat.type === "private"
         ) {
-            await enviarBotaoVitrine(
-                chatId
-            );
+            await enviarBotaoVitrine(chatId);
         }
     }
 );
@@ -538,12 +601,10 @@ Pesquise produtos na nossa vitrine interativa.
 bot.onText(
     /^\/story(?:@\w+)?$/,
     async (msg) => {
-        const chatId =
-            msg.chat.id;
+        const chatId = msg.chat.id;
 
         usuarios.set(chatId, {
-            modo:
-                "aguardandoLink"
+            modo: "aguardandoLink"
         });
 
         await bot.sendMessage(
@@ -560,8 +621,7 @@ bot.onText(
 bot.onText(
     /^\/pesquisar(?:@\w+)?$/,
     async (msg) => {
-        const chatId =
-            msg.chat.id;
+        const chatId = msg.chat.id;
 
         if (
             msg.chat.type !== "private"
@@ -575,8 +635,7 @@ bot.onText(
         }
 
         usuarios.set(chatId, {
-            modo:
-                "aguardandoPesquisa"
+            modo: "aguardandoPesquisa"
         });
 
         await bot.sendMessage(
@@ -593,8 +652,7 @@ bot.onText(
 bot.on(
     "message",
     async (msg) => {
-        const chatId =
-            msg.chat.id;
+        const chatId = msg.chat.id;
 
         if (!msg.text) return;
 
@@ -612,9 +670,7 @@ bot.on(
         const texto =
             msg.text.trim();
 
-        // ---------------------------------------------
         // PESQUISA PELO NOME
-        // ---------------------------------------------
 
         if (
             estado.modo ===
@@ -632,9 +688,7 @@ bot.on(
                 return;
             }
 
-            usuarios.delete(
-                chatId
-            );
+            usuarios.delete(chatId);
 
             await enviarBotaoVitrine(
                 chatId,
@@ -644,9 +698,7 @@ bot.on(
             return;
         }
 
-        // ---------------------------------------------
         // GERAÇÃO PELO LINK
-        // ---------------------------------------------
 
         if (
             estado.modo !==
@@ -667,8 +719,7 @@ bot.on(
             return;
         }
 
-        estado.modo =
-            "processandoLink";
+        estado.modo = "processandoLink";
 
         let mensagemProcessando;
 
@@ -716,12 +767,9 @@ bot.on(
 
         } finally {
             if (
-                usuarios.get(chatId) ===
-                estado
+                usuarios.get(chatId) === estado
             ) {
-                usuarios.delete(
-                    chatId
-                );
+                usuarios.delete(chatId);
             }
         }
     }
@@ -797,7 +845,7 @@ app.listen(
         );
 
         console.log(
-            "✅ Vitrine com rolagem infinita."
+            "✅ API de ordenação e filtros configurada."
         );
 
         console.log(

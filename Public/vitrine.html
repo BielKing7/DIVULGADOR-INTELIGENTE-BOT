@@ -1,0 +1,964 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    >
+
+    <title>Divulgador Inteligente | Vitrine</title>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+        :root {
+            --laranja: #ee4d2d;
+            --laranja-escuro: #d83d20;
+            --fundo: #f5f5f5;
+            --branco: #ffffff;
+            --texto: #222222;
+            --cinza: #777777;
+            --borda: #eeeeee;
+            --verde: #168a48;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            background: var(--fundo);
+            color: var(--texto);
+            font-family: Arial, Helvetica, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .topo {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: var(--laranja);
+            padding:
+                max(12px, env(safe-area-inset-top))
+                14px
+                14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        .marca {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            margin-bottom: 13px;
+        }
+
+        .marca-icone {
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.2);
+            font-size: 23px;
+        }
+
+        .marca h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .marca p {
+            margin: 3px 0 0;
+            font-size: 11px;
+            opacity: 0.92;
+        }
+
+        .busca {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: white;
+            border-radius: 10px;
+            padding: 5px;
+        }
+
+        .busca input {
+            width: 100%;
+            min-width: 0;
+            border: 0;
+            outline: 0;
+            padding: 10px 8px;
+            font-size: 15px;
+            color: #222;
+            background: transparent;
+        }
+
+        .busca button {
+            border: 0;
+            background: var(--laranja);
+            color: white;
+            border-radius: 8px;
+            padding: 11px 14px;
+            font-size: 14px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .conteudo {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 15px 10px 35px;
+        }
+
+        .titulo-secao {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 4px 2px 14px;
+        }
+
+        .titulo-secao h2 {
+            margin: 0;
+            font-size: 17px;
+        }
+
+        .titulo-secao span {
+            font-size: 12px;
+            color: var(--cinza);
+        }
+
+        .grade {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .produto {
+            min-width: 0;
+            background: white;
+            border: 1px solid var(--borda);
+            border-radius: 11px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.035);
+        }
+
+        .produto-imagem {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: contain;
+            background: white;
+            display: block;
+        }
+
+        .produto-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            gap: 9px;
+            padding: 10px;
+        }
+
+        .produto-nome {
+            font-size: 13px;
+            line-height: 1.35;
+            min-height: 35px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+        }
+
+        .produto-loja {
+            font-size: 11px;
+            color: var(--cinza);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .produto-preco {
+            font-size: 19px;
+            color: var(--laranja);
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .selecionar {
+            width: 100%;
+            border: 0;
+            border-radius: 8px;
+            padding: 11px 6px;
+            background: var(--laranja);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: auto;
+        }
+
+        .selecionar:active,
+        .busca button:active {
+            background: var(--laranja-escuro);
+        }
+
+        .mensagem {
+            background: white;
+            border-radius: 12px;
+            padding: 25px 16px;
+            text-align: center;
+            color: var(--cinza);
+            line-height: 1.5;
+            margin: 12px 0;
+        }
+
+        .mensagem-icone {
+            font-size: 38px;
+            margin-bottom: 10px;
+        }
+
+        .mensagem h3 {
+            color: var(--texto);
+            margin: 0 0 8px;
+        }
+
+        .mensagem p {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .oculto {
+            display: none !important;
+        }
+
+        .carregamento {
+            padding: 22px 10px;
+            text-align: center;
+            color: var(--cinza);
+            font-size: 13px;
+        }
+
+        .spinner {
+            width: 26px;
+            height: 26px;
+            border: 3px solid #ffd9d0;
+            border-top-color: var(--laranja);
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            animation: girar 0.8s linear infinite;
+        }
+
+        @keyframes girar {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .aviso {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: max(16px, env(safe-area-inset-bottom));
+            z-index: 50;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: #222;
+            color: white;
+            font-size: 13px;
+            line-height: 1.5;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+        }
+
+        .aviso.sucesso {
+            background: var(--verde);
+        }
+
+        .aviso.erro {
+            background: #b3261e;
+        }
+
+        .rodape {
+            text-align: center;
+            padding: 16px 10px 30px;
+            color: #999;
+            font-size: 11px;
+        }
+
+        @media (min-width: 650px) {
+            .grade {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 14px;
+            }
+
+            .produto-nome {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="topo">
+        <div class="marca">
+            <div class="marca-icone">🛍️</div>
+
+            <div>
+                <h1>Divulgador Inteligente</h1>
+                <p>Pesquise, selecione e divulgue produtos</p>
+            </div>
+        </div>
+
+        <form class="busca" id="formBusca">
+            <input
+                id="campoBusca"
+                type="search"
+                placeholder="O que você está procurando?"
+                autocomplete="off"
+                maxlength="120"
+                required
+            >
+
+            <button type="submit" id="botaoBusca">
+                Buscar
+            </button>
+        </form>
+    </header>
+
+    <main class="conteudo">
+
+        <div class="titulo-secao">
+            <h2 id="tituloResultados">Produtos da Shopee</h2>
+            <span id="indicadorPagina"></span>
+        </div>
+
+        <div class="mensagem" id="mensagemInicial">
+            <div class="mensagem-icone">🔎</div>
+
+            <h3>Encontre produtos para divulgar</h3>
+
+            <p>
+                Digite o nome de um produto para visualizar
+                as ofertas disponíveis na Shopee.
+            </p>
+        </div>
+
+        <div class="grade" id="gradeProdutos"></div>
+
+        <div class="carregamento oculto" id="carregamento">
+            <div class="spinner"></div>
+            Carregando produtos...
+        </div>
+
+        <div class="mensagem oculto" id="mensagemVazia">
+            <div class="mensagem-icone">😕</div>
+
+            <h3>Nenhum produto encontrado</h3>
+
+            <p>
+                Tente pesquisar usando outras palavras.
+            </p>
+        </div>
+
+        <div class="mensagem oculto" id="mensagemErro">
+            <div class="mensagem-icone">⚠️</div>
+
+            <h3>Não foi possível carregar os produtos</h3>
+
+            <p id="textoErro">
+                Verifique sua conexão e tente novamente.
+            </p>
+
+            <button
+                id="botaoTentarNovamente"
+                class="selecionar"
+                style="max-width: 220px; margin-top: 16px;"
+            >
+                Tentar novamente
+            </button>
+        </div>
+
+        <div id="sentinela"></div>
+
+    </main>
+
+    <footer class="rodape">
+        Divulgador Inteligente Bot
+    </footer>
+
+    <div id="aviso" class="aviso oculto"></div>
+
+    <script>
+        "use strict";
+
+        // =================================================
+        // TELEGRAM MINI APP
+        // =================================================
+
+        const telegram = window.Telegram?.WebApp;
+
+        if (telegram) {
+            telegram.ready();
+            telegram.expand();
+
+            if (typeof telegram.setHeaderColor === "function") {
+                telegram.setHeaderColor("#ee4d2d");
+            }
+
+            if (typeof telegram.setBackgroundColor === "function") {
+                telegram.setBackgroundColor("#f5f5f5");
+            }
+        }
+
+        // =================================================
+        // ELEMENTOS DA INTERFACE
+        // =================================================
+
+        const formBusca =
+            document.getElementById("formBusca");
+
+        const campoBusca =
+            document.getElementById("campoBusca");
+
+        const gradeProdutos =
+            document.getElementById("gradeProdutos");
+
+        const tituloResultados =
+            document.getElementById("tituloResultados");
+
+        const indicadorPagina =
+            document.getElementById("indicadorPagina");
+
+        const mensagemInicial =
+            document.getElementById("mensagemInicial");
+
+        const mensagemVazia =
+            document.getElementById("mensagemVazia");
+
+        const mensagemErro =
+            document.getElementById("mensagemErro");
+
+        const textoErro =
+            document.getElementById("textoErro");
+
+        const carregamento =
+            document.getElementById("carregamento");
+
+        const sentinela =
+            document.getElementById("sentinela");
+
+        const aviso =
+            document.getElementById("aviso");
+
+        const botaoTentarNovamente =
+            document.getElementById("botaoTentarNovamente");
+
+        // =================================================
+        // ESTADO DA PESQUISA
+        // =================================================
+
+        const LIMITE_POR_LOTE = 20;
+
+        let termoAtual = "";
+        let paginaAtual = 0;
+        let temProximaPagina = false;
+        let carregando = false;
+        let quantidadeExibida = 0;
+
+        let controladorBusca = null;
+        let identificadorPesquisa = 0;
+        let temporizadorAviso = null;
+
+        // =================================================
+        // FUNÇÕES AUXILIARES
+        // =================================================
+
+        function mostrar(elemento) {
+            elemento.classList.remove("oculto");
+        }
+
+        function esconder(elemento) {
+            elemento.classList.add("oculto");
+        }
+
+        function mostrarAviso(texto, tipo = "") {
+            aviso.textContent = texto;
+
+            aviso.className = "aviso";
+
+            if (tipo) {
+                aviso.classList.add(tipo);
+            }
+
+            mostrar(aviso);
+
+            if (temporizadorAviso) {
+                clearTimeout(temporizadorAviso);
+            }
+
+            temporizadorAviso = setTimeout(() => {
+                esconder(aviso);
+            }, 4500);
+        }
+
+        function formatarPreco(produto) {
+            if (
+                typeof produto.preco === "string" &&
+                produto.preco.includes("R$")
+            ) {
+                return produto.preco;
+            }
+
+            const valor = Number(
+                produto.precoNumero ?? produto.preco
+            );
+
+            if (!Number.isFinite(valor)) {
+                return "Preço indisponível";
+            }
+
+            return valor.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL"
+            });
+        }
+
+        function obterAutenticacao() {
+            return telegram?.initData || "";
+        }
+
+        async function lerResposta(resposta) {
+            const dados = await resposta.json();
+
+            if (!resposta.ok) {
+                throw new Error(
+                    dados.erro ||
+                    dados.error ||
+                    "O servidor não conseguiu concluir a solicitação."
+                );
+            }
+
+            return dados;
+        }
+
+        // =================================================
+        // CRIAÇÃO DOS CARTÕES
+        // =================================================
+
+        function criarCartao(produto) {
+            const cartao = document.createElement("article");
+            cartao.className = "produto";
+
+            const imagem = document.createElement("img");
+            imagem.className = "produto-imagem";
+            imagem.alt = produto.titulo || "Produto da Shopee";
+            imagem.loading = "lazy";
+            imagem.referrerPolicy = "no-referrer";
+
+            if (produto.imagem) {
+                imagem.src = produto.imagem;
+            }
+
+            imagem.onerror = () => {
+                imagem.onerror = null;
+
+                imagem.removeAttribute("src");
+
+                imagem.alt = "Imagem indisponível";
+            };
+
+            const informacoes = document.createElement("div");
+            informacoes.className = "produto-info";
+
+            const nome = document.createElement("div");
+            nome.className = "produto-nome";
+            nome.textContent =
+                produto.titulo || "Produto sem título";
+
+            const loja = document.createElement("div");
+            loja.className = "produto-loja";
+            loja.textContent =
+                produto.loja || "Shopee";
+
+            const preco = document.createElement("div");
+            preco.className = "produto-preco";
+            preco.textContent = formatarPreco(produto);
+
+            const botao = document.createElement("button");
+            botao.className = "selecionar";
+            botao.type = "button";
+            botao.textContent = "🎨 Gerar arte";
+
+            botao.addEventListener("click", async () => {
+                await selecionarProduto(produto, botao);
+            });
+
+            informacoes.append(
+                nome,
+                loja,
+                preco,
+                botao
+            );
+
+            cartao.append(
+                imagem,
+                informacoes
+            );
+
+            return cartao;
+        }
+
+        // =================================================
+        // PESQUISA
+        // =================================================
+
+        async function iniciarPesquisa(termo) {
+            const palavraChave = String(termo || "").trim();
+
+            if (!palavraChave) {
+                mostrarAviso(
+                    "Digite o nome do produto que deseja pesquisar.",
+                    "erro"
+                );
+
+                return;
+            }
+
+            identificadorPesquisa++;
+
+            if (controladorBusca) {
+                controladorBusca.abort();
+            }
+
+            termoAtual = palavraChave;
+            paginaAtual = 0;
+            temProximaPagina = true;
+            carregando = false;
+            quantidadeExibida = 0;
+
+            gradeProdutos.replaceChildren();
+
+            esconder(mensagemInicial);
+            esconder(mensagemVazia);
+            esconder(mensagemErro);
+
+            tituloResultados.textContent =
+                `Resultados para: ${palavraChave}`;
+
+            indicadorPagina.textContent = "";
+
+            await carregarMaisProdutos();
+        }
+
+        async function carregarMaisProdutos() {
+            if (
+                carregando ||
+                !temProximaPagina ||
+                !termoAtual
+            ) {
+                return;
+            }
+
+            carregando = true;
+
+            const pesquisaEmAndamento =
+                identificadorPesquisa;
+
+            const proximaPagina = paginaAtual + 1;
+
+            controladorBusca = new AbortController();
+
+            mostrar(carregamento);
+            esconder(mensagemErro);
+
+            try {
+                const parametros = new URLSearchParams({
+                    termo: termoAtual,
+                    page: String(proximaPagina),
+                    limit: String(LIMITE_POR_LOTE)
+                });
+
+                const resposta = await fetch(
+                    `/api/produtos?${parametros.toString()}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "X-Telegram-Init-Data":
+                                obterAutenticacao()
+                        },
+                        signal: controladorBusca.signal
+                    }
+                );
+
+                const dados = await lerResposta(resposta);
+
+                if (
+                    pesquisaEmAndamento !==
+                    identificadorPesquisa
+                ) {
+                    return;
+                }
+
+                const produtos = Array.isArray(dados.produtos)
+                    ? dados.produtos
+                    : [];
+
+                const informacoes =
+                    dados.pageInfo || {};
+
+                paginaAtual = Number(
+                    informacoes.page || proximaPagina
+                );
+
+                temProximaPagina =
+                    informacoes.hasNextPage === true;
+
+                for (const produto of produtos) {
+                    gradeProdutos.appendChild(
+                        criarCartao(produto)
+                    );
+
+                    quantidadeExibida++;
+                }
+
+                indicadorPagina.textContent =
+                    `${quantidadeExibida} produtos`;
+
+                if (
+                    quantidadeExibida === 0 &&
+                    !temProximaPagina
+                ) {
+                    mostrar(mensagemVazia);
+                }
+
+                if (
+                    produtos.length === 0 &&
+                    temProximaPagina
+                ) {
+                    // Uma página pode conter ofertas
+                    // filtradas pelo servidor.
+                    // A próxima tentativa será feita
+                    // quando o usuário rolar a tela.
+                }
+
+            } catch (erro) {
+                if (erro.name === "AbortError") {
+                    return;
+                }
+
+                if (
+                    pesquisaEmAndamento !==
+                    identificadorPesquisa
+                ) {
+                    return;
+                }
+
+                console.error(
+                    "Erro ao pesquisar produtos:",
+                    erro
+                );
+
+                textoErro.textContent =
+                    erro.message ||
+                    "Verifique sua conexão e tente novamente.";
+
+                mostrar(mensagemErro);
+
+            } finally {
+                if (
+                    pesquisaEmAndamento ===
+                    identificadorPesquisa
+                ) {
+                    carregando = false;
+                    esconder(carregamento);
+                }
+            }
+        }
+
+        // =================================================
+        // SELECIONAR PRODUTO
+        // =================================================
+
+        async function selecionarProduto(produto, botao) {
+            if (!telegram?.initData) {
+                mostrarAviso(
+                    "Abra esta vitrine pelo seu bot no Telegram.",
+                    "erro"
+                );
+
+                return;
+            }
+
+            if (
+                !produto.itemId ||
+                !produto.shopId
+            ) {
+                mostrarAviso(
+                    "Este produto não possui identificação válida.",
+                    "erro"
+                );
+
+                return;
+            }
+
+            const textoOriginal = botao.textContent;
+
+            botao.disabled = true;
+            botao.textContent = "⏳ Solicitando...";
+
+            try {
+                const resposta = await fetch(
+                    "/api/gerar-arte",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+
+                            "X-Telegram-Init-Data":
+                                obterAutenticacao()
+                        },
+
+                        body: JSON.stringify({
+                            itemId: String(produto.itemId),
+                            shopId: String(produto.shopId)
+                        })
+                    }
+                );
+
+                await lerResposta(resposta);
+
+                mostrarAviso(
+                    "✅ Arte solicitada! Confira a conversa com seu bot. A vitrine continuará aberta.",
+                    "sucesso"
+                );
+
+                botao.textContent = "✅ Solicitado";
+
+                if (telegram.HapticFeedback) {
+                    telegram.HapticFeedback.notificationOccurred(
+                        "success"
+                    );
+                }
+
+                setTimeout(() => {
+                    botao.textContent = textoOriginal;
+                }, 3000);
+
+            } catch (erro) {
+                console.error(
+                    "Erro ao solicitar arte:",
+                    erro
+                );
+
+                mostrarAviso(
+                    erro.message ||
+                    "Não foi possível solicitar a arte.",
+                    "erro"
+                );
+
+                botao.textContent = textoOriginal;
+
+            } finally {
+                botao.disabled = false;
+            }
+        }
+
+        // =================================================
+        // ROLAGEM INFINITA
+        // =================================================
+
+        const observador = new IntersectionObserver(
+            entradas => {
+                if (
+                    entradas[0].isIntersecting &&
+                    !carregando &&
+                    temProximaPagina
+                ) {
+                    carregarMaisProdutos();
+                }
+            },
+            {
+                root: null,
+                rootMargin: "500px",
+                threshold: 0
+            }
+        );
+
+        observador.observe(sentinela);
+
+        // =================================================
+        // EVENTOS
+        // =================================================
+
+        formBusca.addEventListener(
+            "submit",
+            async evento => {
+                evento.preventDefault();
+
+                campoBusca.blur();
+
+                await iniciarPesquisa(
+                    campoBusca.value
+                );
+            }
+        );
+
+        botaoTentarNovamente.addEventListener(
+            "click",
+            async () => {
+                esconder(mensagemErro);
+
+                await carregarMaisProdutos();
+            }
+        );
+
+        // =================================================
+        // PESQUISA INICIAL
+        // =================================================
+
+        const parametrosIniciais =
+            new URLSearchParams(window.location.search);
+
+        const termoInicial =
+            parametrosIniciais.get("termo") || "";
+
+        if (termoInicial.trim()) {
+            campoBusca.value = termoInicial.trim();
+
+            iniciarPesquisa(termoInicial);
+        }
+
+    </script>
+
+</body>
+</html>

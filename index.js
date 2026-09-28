@@ -1,6 +1,8 @@
+
 require("dotenv").config();
 
 const express = require("express");
+const crypto = require("crypto");
 const TelegramBot = require("node-telegram-bot-api");
 
 const {
@@ -13,6 +15,9 @@ const { gerarArte } = require("./canvas");
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const APP_ID = process.env.SHOPEE_APP_ID;
 const APP_SECRET = process.env.SHOPEE_SECRET;
+
+const MINI_APP_URL =
+    "https://divulgador-inteligente-bot.onrender.com/vitrine.html";
 
 if (!BOT_TOKEN) {
     throw new Error("TELEGRAM_BOT_TOKEN não configurado.");
@@ -33,100 +38,158 @@ const bot = new TelegramBot(BOT_TOKEN, {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json({
+    limit: "16kb"
+}));
+
+app.use(
+    express.static("public")
+);
+
 app.get("/", (req, res) => {
     res.send("🤖 Divulgador Inteligente Bot Online!");
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor iniciado na porta ${PORT}`);
-});
-
-const PRODUTOS_POR_PAGINA = 5;
-
 const usuarios = new Map();
+const artesEmAndamento = new Set();
 
-let proximoIdPesquisa = 1;
+// =====================================================
+// AUTENTICAÇÃO DO TELEGRAM MINI APP
+// =====================================================
 
-function criarIdPesquisa() {
-    return (proximoIdPesquisa++).toString(36);
-}
+function autenticarMiniApp(req, res, next) {
+    const initData =
+        req.get("X-Telegram-Init-Data");
 
-function escaparHtml(texto) {
-    return String(texto)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-}
-
-function montarLegendaCarrossel(pesquisa) {
-    const produto = pesquisa.produtos[pesquisa.indice];
-
-    const titulo = escaparHtml(
-        String(produto.titulo || "Produto").slice(0, 500)
-    );
-
-    const preco = escaparHtml(produto.preco);
-
-    return (
-        `<i>Produto ${pesquisa.indice + 1} de ${pesquisa.produtos.length} • Página ${pesquisa.pagina}</i>\n\n` +
-        `<b>${titulo}</b>\n\n` +
-        `<b>${preco}</b>`
-    );
-}
-
-function montarBotoesCarrossel(pesquisa) {
-    const { id, pagina, indice, produtos } = pesquisa;
-
-    const teclado = [
-        [
-            {
-                text: "🎨 Selecionar produto",
-                callback_data: `produto:${id}:${pagina}:${indice}`,
-                style: "success"
-            }
-        ],
-        [
-            {
-                text: "⬅️ Anterior",
-                callback_data: indice > 0
-                    ? `nav:${id}:${pagina}:${indice - 1}`
-                    : `limite:${id}:primeiro`
-            },
-            {
-                text: "Próximo ➡️",
-                callback_data: indice < produtos.length - 1
-                    ? `nav:${id}:${pagina}:${indice + 1}`
-                    : `limite:${id}:ultimo`
-            }
-        ]
-    ];
-
-    const linhaPaginas = [];
-
-    if (pagina > 1) {
-        linhaPaginas.push({
-            text: "📄 Página anterior",
-            callback_data: `pagina:${id}:${pagina - 1}`
+    if (!initData) {
+        return res.status(401).json({
+            erro: "Abra a vitrine pelo bot no Telegram."
         });
     }
 
-    if (pesquisa.temProximaPagina) {
-        linhaPaginas.push({
-            text: "📄 Próxima página",
-            callback_data: `pagina:${id}:${pagina + 1}`
+    try {
+        const parametros = new URLSearchParams(
+            initData
+        );
+
+        const hashRecebido =
+            parametros.get("hash");
+
+        if (
+            !hashRecebido ||
+            !/^[a-f0-9]{64}$/i.test(hashRecebido)
+        ) {
+            throw new Error("Assinatura ausente.");
+        }
+
+        parametros.delete("hash");
+
+        const dadosOrdenados = [
+            ...parametros.entries()
+        ].sort((a, b) => {
+            return a[0].localeCompare(b[0]);
+        });
+
+        const dataCheckString = dadosOrdenados
+            .map(([chave, valor]) => {
+                return `${chave}=${valor}`;
+            })
+            .join("\n");
+
+        const chaveSecreta = crypto
+            .createHmac(
+                "sha256",
+                "WebAppData"
+            )
+            .update(BOT_TOKEN)
+            .digest();
+
+        const hashCalculado = crypto
+            .createHmac(
+                "sha256",
+                chaveSecreta
+            )
+            .update(dataCheckString)
+            .digest();
+
+        const hashInformado = Buffer.from(
+            hashRecebido,
+            "hex"
+        );
+
+        if (
+            hashInformado.length !==
+            hashCalculado.length
+        ) {
+            throw new Error("Assinatura inválida.");
+        }
+
+        if (
+            !crypto.timingSafeEqual(
+                hashInformado,
+                hashCalculado
+            )
+        ) {
+            throw new Error("Assinatura inválida.");
+        }
+
+        const authDate = Number(
+            parametros.get("auth_date")
+        );
+
+        const agora = Math.floor(
+            Date.now() / 1000
+        );
+
+        if (
+            !Number.isFinite(authDate) ||
+            authDate > agora + 60 ||
+            agora - authDate > 86400
+        ) {
+            throw new Error(
+                "Sessão expirada."
+            );
+        }
+
+        const usuario = JSON.parse(
+            parametros.get("user") || "{}"
+        );
+
+        if (
+            !Number.isSafeInteger(usuario.id) ||
+            usuario.id <= 0
+        ) {
+            throw new Error(
+                "Usuário inválido."
+            );
+        }
+
+        req.usuarioTelegram = usuario;
+
+        next();
+
+    } catch (erro) {
+        console.error(
+            "Autenticação do Mini App:",
+            erro.message
+        );
+
+        return res.status(401).json({
+            erro:
+                "Sua sessão expirou ou é inválida. " +
+                "Feche a vitrine e abra novamente pelo bot."
         });
     }
-
-    if (linhaPaginas.length > 0) {
-        teclado.push(linhaPaginas);
-    }
-
-    return {
-        inline_keyboard: teclado
-    };
 }
 
-async function apagarMensagem(chatId, mensagem) {
+// =====================================================
+// FUNÇÕES AUXILIARES
+// =====================================================
+
+async function apagarMensagem(
+    chatId,
+    mensagem
+) {
     if (!mensagem) return;
 
     try {
@@ -137,132 +200,48 @@ async function apagarMensagem(chatId, mensagem) {
     } catch (_) {}
 }
 
-async function exibirProduto(chatId, pesquisa) {
-    const produto = pesquisa.produtos[pesquisa.indice];
-    const legenda = montarLegendaCarrossel(pesquisa);
-    const botoes = montarBotoesCarrossel(pesquisa);
+function criarLegendaArte(produto) {
+    const titulo = String(
+        produto.titulo || "Produto"
+    ).slice(0, 650);
 
-    if (
-        pesquisa.mensagemId &&
-        pesquisa.mensagemTipo === "foto"
-    ) {
-        try {
-            await bot.editMessageMedia(
-                {
-                    type: "photo",
-                    media: produto.imagem,
-                    caption: legenda,
-                    parse_mode: "HTML"
-                },
-                {
-                    chat_id: chatId,
-                    message_id: pesquisa.mensagemId
-                }
-            );
-
-            await bot.editMessageReplyMarkup(
-                botoes,
-                {
-                    chat_id: chatId,
-                    message_id: pesquisa.mensagemId
-                }
-            );
-
-            return;
-
-        } catch (erro) {
-            if (
-                String(erro.message)
-                    .includes("message is not modified")
-            ) {
-                return;
-            }
-
-            console.error(
-                "Erro ao editar o carrossel:",
-                erro.message
-            );
-        }
-    }
-
-    if (pesquisa.mensagemId) {
-        try {
-            await bot.deleteMessage(
-                chatId,
-                pesquisa.mensagemId
-            );
-        } catch (_) {}
-
-        pesquisa.mensagemId = null;
-    }
-
-    try {
-        const enviada = await bot.sendPhoto(
-            chatId,
-            produto.imagem,
-            {
-                caption: legenda,
-                parse_mode: "HTML",
-                reply_markup: botoes
-            }
-        );
-
-        pesquisa.mensagemId = enviada.message_id;
-        pesquisa.mensagemTipo = "foto";
-
-    } catch (erroFoto) {
-        console.error(
-            "Erro ao enviar foto do produto:",
-            erroFoto.message
-        );
-
-        const enviada = await bot.sendMessage(
-            chatId,
-            legenda,
-            {
-                parse_mode: "HTML",
-                reply_markup: botoes
-            }
-        );
-
-        pesquisa.mensagemId = enviada.message_id;
-        pesquisa.mensagemTipo = "texto";
-    }
+    return (
+        "✅ Arte gerada com sucesso!\n\n" +
+        `📦 ${titulo}\n\n` +
+        `💰 ${produto.preco}\n\n` +
+        `🔗 ${produto.linkAfiliado}`
+    );
 }
 
-async function enviarArte(chatId, produto) {
+async function enviarArte(
+    chatId,
+    produto
+) {
     let mensagemProcessando;
 
     try {
-        mensagemProcessando = await bot.sendMessage(
-            chatId,
-            "🎨 Gerando a arte do produto..."
+        mensagemProcessando =
+            await bot.sendMessage(
+                chatId,
+                "🎨 Gerando a arte do produto..."
+            );
+
+        const imagem = await gerarArte(
+            produto
         );
-
-        const imagem = await gerarArte(produto);
-
-        const titulo = String(produto.titulo || "Produto")
-            .slice(0, 650);
-
-        const legenda =
-            `✅ Arte gerada com sucesso!\n\n` +
-            `📦 ${titulo}\n\n` +
-            `💰 ${produto.preco}\n\n` +
-            `🔗 ${produto.linkAfiliado}`;
-
-        await apagarMensagem(
-            chatId,
-            mensagemProcessando
-        );
-
-        mensagemProcessando = null;
 
         await bot.sendPhoto(
             chatId,
             imagem,
             {
-                caption: legenda
+                caption:
+                    criarLegendaArte(produto)
             }
+        );
+
+        await apagarMensagem(
+            chatId,
+            mensagemProcessando
         );
 
     } catch (erro) {
@@ -278,114 +257,247 @@ async function enviarArte(chatId, produto) {
 
         await bot.sendMessage(
             chatId,
-            "❌ Não foi possível gerar a arte desse produto. Tente novamente."
+            "❌ Não foi possível gerar a arte. Tente novamente."
         );
     }
 }
 
-async function mostrarPagina(chatId, pesquisa, pagina) {
-    if (pesquisa.carregando) {
-        return;
+function criarUrlVitrine(termo = "") {
+    const url = new URL(
+        MINI_APP_URL
+    );
+
+    if (termo) {
+        url.searchParams.set(
+            "termo",
+            termo
+        );
     }
 
-    pesquisa.carregando = true;
-
-    let mensagemProcessando;
-
-    try {
-        if (!pesquisa.mensagemId) {
-            mensagemProcessando = await bot.sendMessage(
-                chatId,
-                `🔎 Buscando produtos...\n\n📄 Página ${pagina}`
-            );
-        }
-
-        const resultado = await pesquisarProdutosShopee(
-            pesquisa.termo,
-            APP_ID,
-            APP_SECRET,
-            pagina,
-            PRODUTOS_POR_PAGINA
-        );
-
-        if (usuarios.get(chatId) !== pesquisa) {
-            await apagarMensagem(
-                chatId,
-                mensagemProcessando
-            );
-
-            return;
-        }
-
-        const produtos = resultado.produtos;
-
-        await apagarMensagem(
-            chatId,
-            mensagemProcessando
-        );
-
-        mensagemProcessando = null;
-
-        if (produtos.length === 0) {
-            await bot.sendMessage(
-                chatId,
-                "😕 Nenhum produto encontrado nesta página.\n\nTente outra pesquisa com /pesquisar."
-            );
-
-            return;
-        }
-
-        pesquisa.produtos = produtos;
-        pesquisa.pagina = resultado.pageInfo.page;
-        pesquisa.temProximaPagina =
-            resultado.pageInfo.hasNextPage;
-        pesquisa.indice = 0;
-
-        if (!pesquisa.cabecalhoEnviado) {
-            await bot.sendMessage(
-                chatId,
-                `🛍️ <b>Resultados para ${escaparHtml(pesquisa.termo.slice(0, 80))}</b>`,
-                {
-                    parse_mode: "HTML"
-                }
-            );
-
-            pesquisa.cabecalhoEnviado = true;
-        }
-
-        await exibirProduto(
-            chatId,
-            pesquisa
-        );
-
-    } catch (erro) {
-        console.error(
-            "Erro na pesquisa:",
-            erro
-        );
-
-        await apagarMensagem(
-            chatId,
-            mensagemProcessando
-        );
-
-        if (usuarios.get(chatId) === pesquisa) {
-            await bot.sendMessage(
-                chatId,
-                "❌ Não foi possível buscar os produtos na Shopee.\n\nTente novamente em alguns instantes."
-            );
-        }
-
-    } finally {
-        pesquisa.carregando = false;
-    }
+    return url.toString();
 }
 
-bot.onText(/^\/start(?:@\w+)?$/, async (msg) => {
-    const chatId = msg.chat.id;
+async function enviarBotaoVitrine(
+    chatId,
+    termo = ""
+) {
+    const texto = termo
+        ? `🛍️ Sua pesquisa: ${termo}\n\nToque no botão abaixo para visualizar os produtos.`
+        : "🛍️ Abra a vitrine para pesquisar produtos da Shopee.";
 
     await bot.sendMessage(
         chatId,
+        texto,
+        {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text:
+                                "🛍️ Abrir vitrine",
+
+                            web_app: {
+                                url:
+                                    criarUrlVitrine(
+                                        termo
+                                    )
+                            }
+                        }
+                    ]
+                ]
+            }
+        }
+    );
+}
+
+// =====================================================
+// API: PESQUISAR PRODUTOS
+// =====================================================
+
+app.get(
+    "/api/produtos",
+    autenticarMiniApp,
+    async (req, res) => {
+        const termo = String(
+            req.query.termo || ""
+        ).trim();
+
+        const page = Number(
+            req.query.page || 1
+        );
+
+        const limit = Number(
+            req.query.limit || 20
+        );
+
+        if (
+            !termo ||
+            termo.length > 120
+        ) {
+            return res.status(400).json({
+                erro:
+                    "Digite um nome de produto válido."
+            });
+        }
+
+        if (
+            !Number.isSafeInteger(page) ||
+            page < 1 ||
+            page > 1000
+        ) {
+            return res.status(400).json({
+                erro:
+                    "Número de página inválido."
+            });
+        }
+
+        if (
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 50
+        ) {
+            return res.status(400).json({
+                erro:
+                    "Quantidade de produtos inválida."
+            });
+        }
+
+        try {
+            const resultado =
+                await pesquisarProdutosShopee(
+                    termo,
+                    APP_ID,
+                    APP_SECRET,
+                    page,
+                    limit
+                );
+
+            return res.json({
+                produtos:
+                    resultado.produtos,
+
+                pageInfo:
+                    resultado.pageInfo
+            });
+
+        } catch (erro) {
+            console.error(
+                "Erro na pesquisa Shopee:",
+                erro
+            );
+
+            return res.status(502).json({
+                erro:
+                    "Não foi possível buscar os produtos na Shopee. Tente novamente."
+            });
+        }
+    }
+);
+
+// =====================================================
+// API: GERAR ARTE
+// =====================================================
+
+app.post(
+    "/api/gerar-arte",
+    autenticarMiniApp,
+    async (req, res) => {
+        const chatId =
+            req.usuarioTelegram.id;
+
+        const shopId = String(
+            req.body.shopId || ""
+        );
+
+        const itemId = String(
+            req.body.itemId || ""
+        );
+
+        if (
+            !/^\d{1,20}$/.test(shopId) ||
+            !/^\d{1,20}$/.test(itemId) ||
+            shopId === "0" ||
+            itemId === "0"
+        ) {
+            return res.status(400).json({
+                erro:
+                    "Identificação do produto inválida."
+            });
+        }
+
+        if (
+            artesEmAndamento.has(chatId)
+        ) {
+            return res.status(429).json({
+                erro:
+                    "Aguarde a arte anterior terminar antes de selecionar outro produto."
+            });
+        }
+
+        artesEmAndamento.add(chatId);
+
+        // Responde imediatamente ao Mini App.
+        // A arte será enviada na conversa do Telegram.
+        res.status(202).json({
+            sucesso: true,
+            mensagem:
+                "Sua arte está sendo preparada."
+        });
+
+        try {
+            const linkProduto =
+                `https://shopee.com.br/product/${shopId}/${itemId}`;
+
+            const produto =
+                await obterProdutoShopee(
+                    linkProduto,
+                    APP_ID,
+                    APP_SECRET
+                );
+
+            await enviarArte(
+                chatId,
+                produto
+            );
+
+        } catch (erro) {
+            console.error(
+                "Erro ao processar produto selecionado:",
+                erro
+            );
+
+            try {
+                await bot.sendMessage(
+                    chatId,
+                    "❌ Não foi possível buscar o produto selecionado. Tente novamente."
+                );
+            } catch (erroTelegram) {
+                console.error(
+                    "Erro ao enviar aviso:",
+                    erroTelegram
+                );
+            }
+
+        } finally {
+            artesEmAndamento.delete(
+                chatId
+            );
+        }
+    }
+);
+
+// =====================================================
+// COMANDO /START
+// =====================================================
+
+bot.onText(
+    /^\/start(?:@\w+)?$/,
+    async (msg) => {
+        const chatId =
+            msg.chat.id;
+
+        await bot.sendMessage(
+            chatId,
 
 `👋 Olá!
 
@@ -393,407 +505,303 @@ Eu sou o *Divulgador Inteligente Bot*.
 
 Transformo produtos da Shopee em artes prontas para publicar nos Stories do Instagram.
 
-📌 *Escolha como deseja começar:*
+📌 *Comandos disponíveis:*
 
 🔗 /story
-Envie o link de um produto da Shopee para gerar sua arte.
+Envie o link de um produto para gerar sua arte.
 
-🔎 /pesquisar
-Pesquise produtos pelo nome, veja fotos e preços e escolha qual deseja divulgar.
+🛍️ /pesquisar
+Pesquise produtos na nossa vitrine interativa.
 
-✨ A arte será gerada automaticamente!`,
+✨ Escolha seus produtos e gere suas artes automaticamente!`,
 
-        {
-            parse_mode: "Markdown"
+            {
+                parse_mode:
+                    "Markdown"
+            }
+        );
+
+        if (
+            msg.chat.type === "private"
+        ) {
+            await enviarBotaoVitrine(
+                chatId
+            );
         }
-    );
-});
+    }
+);
 
-bot.onText(/^\/story(?:@\w+)?$/, async (msg) => {
-    const chatId = msg.chat.id;
+// =====================================================
+// COMANDO /STORY
+// =====================================================
 
-    usuarios.set(chatId, {
-        modo: "aguardandoLink"
-    });
+bot.onText(
+    /^\/story(?:@\w+)?$/,
+    async (msg) => {
+        const chatId =
+            msg.chat.id;
 
-    await bot.sendMessage(
-        chatId,
-        "🔗 Agora envie o link do produto da Shopee."
-    );
-});
+        usuarios.set(chatId, {
+            modo:
+                "aguardandoLink"
+        });
 
-bot.onText(/^\/pesquisar(?:@\w+)?$/, async (msg) => {
-    const chatId = msg.chat.id;
+        await bot.sendMessage(
+            chatId,
+            "🔗 Agora envie o link do produto da Shopee."
+        );
+    }
+);
 
-    usuarios.set(chatId, {
-        modo: "aguardandoPesquisa"
-    });
+// =====================================================
+// COMANDO /PESQUISAR
+// =====================================================
 
-    await bot.sendMessage(
-        chatId,
-        "🔎 Qual produto você deseja pesquisar?\n\nExemplo: PlayStation 5"
-    );
-});
+bot.onText(
+    /^\/pesquisar(?:@\w+)?$/,
+    async (msg) => {
+        const chatId =
+            msg.chat.id;
 
-bot.on("message", async (msg) => {
-    const chatId = msg.chat.id;
-
-    if (!msg.text) return;
-    if (msg.text.startsWith("/")) return;
-
-    const estado = usuarios.get(chatId);
-
-    if (!estado) return;
-
-    const texto = msg.text.trim();
-
-    if (estado.modo === "aguardandoPesquisa") {
-        if (!texto) {
+        if (
+            msg.chat.type !== "private"
+        ) {
             await bot.sendMessage(
                 chatId,
-                "❌ Digite o nome de um produto."
+                "🛍️ Abra uma conversa privada comigo para utilizar a vitrine."
             );
 
             return;
         }
 
-        const pesquisa = {
-            modo: "pesquisa",
-            id: criarIdPesquisa(),
-            termo: texto,
-            pagina: 1,
-            indice: 0,
-            produtos: [],
-            temProximaPagina: false,
-            carregando: false,
-            gerandoArte: false,
-            cabecalhoEnviado: false,
-            mensagemId: null,
-            mensagemTipo: null
-        };
-
-        usuarios.set(chatId, pesquisa);
-
-        await mostrarPagina(
-            chatId,
-            pesquisa,
-            1
-        );
-
-        return;
-    }
-
-    if (estado.modo !== "aguardandoLink") {
-        return;
-    }
-
-    if (
-        !texto.startsWith("https://") &&
-        !texto.startsWith("http://")
-    ) {
-        await bot.sendMessage(
-            chatId,
-            "❌ Envie um link válido da Shopee."
-        );
-
-        return;
-    }
-
-    estado.modo = "processandoLink";
-
-    let mensagemProcessando;
-
-    try {
-        mensagemProcessando = await bot.sendMessage(
-            chatId,
-            "🔄 Buscando informações do produto..."
-        );
-
-        const produto = await obterProdutoShopee(
-            texto,
-            APP_ID,
-            APP_SECRET
-        );
-
-        await apagarMensagem(
-            chatId,
-            mensagemProcessando
-        );
-
-        mensagemProcessando = null;
-
-        await enviarArte(
-            chatId,
-            produto
-        );
-
-    } catch (erro) {
-        console.error(
-            "Erro ao buscar produto pelo link:",
-            erro
-        );
-
-        await apagarMensagem(
-            chatId,
-            mensagemProcessando
-        );
+        usuarios.set(chatId, {
+            modo:
+                "aguardandoPesquisa"
+        });
 
         await bot.sendMessage(
             chatId,
-            "❌ Ocorreu um erro ao buscar o produto.\n\nVerifique se o link é válido e tente novamente."
+            "🔎 Qual produto você deseja pesquisar?\n\nExemplo: PlayStation 5"
         );
-
-    } finally {
-        if (usuarios.get(chatId) === estado) {
-            usuarios.delete(chatId);
-        }
     }
-});
+);
 
-bot.on("callback_query", async (consulta) => {
-    const chatId = consulta.message?.chat?.id;
+// =====================================================
+// RECEBIMENTO DE MENSAGENS
+// =====================================================
 
-    if (!chatId) {
-        await bot.answerCallbackQuery(consulta.id);
-        return;
-    }
+bot.on(
+    "message",
+    async (msg) => {
+        const chatId =
+            msg.chat.id;
 
-    const dados = String(consulta.data || "");
-    const partes = dados.split(":");
-
-    const acao = partes[0];
-    const idPesquisa = partes[1];
-
-    const pesquisa = usuarios.get(chatId);
-
-    if (
-        !pesquisa ||
-        pesquisa.modo !== "pesquisa" ||
-        pesquisa.id !== idPesquisa
-    ) {
-        await bot.answerCallbackQuery(
-            consulta.id,
-            {
-                text: "Esta pesquisa expirou. Digite /pesquisar novamente.",
-                show_alert: true
-            }
-        );
-
-        return;
-    }
-
-    if (acao === "limite") {
-        const textoAviso = partes[2] === "primeiro"
-            ? "Este é o primeiro produto desta página."
-            : "Este é o último produto desta página. Use 📄 Próxima página para ver mais.";
-
-        await bot.answerCallbackQuery(
-            consulta.id,
-            {
-                text: textoAviso
-            }
-        );
-
-        return;
-    }
-
-    if (acao === "nav") {
-        const pagina = Number(partes[2]);
-        const indice = Number(partes[3]);
+        if (!msg.text) return;
 
         if (
-            pagina !== pesquisa.pagina ||
-            !Number.isInteger(indice) ||
-            indice < 0 ||
-            indice >= pesquisa.produtos.length
+            msg.text.startsWith("/")
         ) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Este resultado não está mais ativo. Faça uma nova pesquisa.",
-                    show_alert: true
-                }
-            );
-
             return;
         }
 
-        if (pesquisa.carregando) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Aguarde um instante."
-                }
+        const estado =
+            usuarios.get(chatId);
+
+        if (!estado) return;
+
+        const texto =
+            msg.text.trim();
+
+        // ---------------------------------------------
+        // PESQUISA PELO NOME
+        // ---------------------------------------------
+
+        if (
+            estado.modo ===
+            "aguardandoPesquisa"
+        ) {
+            if (
+                !texto ||
+                texto.length > 120
+            ) {
+                await bot.sendMessage(
+                    chatId,
+                    "❌ Digite o nome de um produto com até 120 caracteres."
+                );
+
+                return;
+            }
+
+            usuarios.delete(
+                chatId
             );
 
-            return;
-        }
-
-        await bot.answerCallbackQuery(consulta.id);
-
-        pesquisa.carregando = true;
-
-        try {
-            pesquisa.indice = indice;
-
-            await exibirProduto(
+            await enviarBotaoVitrine(
                 chatId,
-                pesquisa
-            );
-        } catch (erro) {
-            console.error(
-                "Erro ao navegar entre produtos:",
-                erro
-            );
-        } finally {
-            pesquisa.carregando = false;
-        }
-
-        return;
-    }
-
-    if (acao === "pagina") {
-        const pagina = Number(partes[2]);
-
-        if (
-            !Number.isInteger(pagina) ||
-            pagina < 1 ||
-            pagina > pesquisa.pagina + 1 ||
-            (
-                pagina > pesquisa.pagina &&
-                !pesquisa.temProximaPagina
-            )
-        ) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Página indisponível."
-                }
+                texto
             );
 
             return;
         }
 
-        if (pesquisa.carregando) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Aguarde a pesquisa atual terminar."
-                }
-            );
-
-            return;
-        }
-
-        await bot.answerCallbackQuery(
-            consulta.id,
-            {
-                text: `Carregando página ${pagina}...`
-            }
-        );
-
-        await mostrarPagina(
-            chatId,
-            pesquisa,
-            pagina
-        );
-
-        return;
-    }
-
-    if (acao === "produto") {
-        const pagina = Number(partes[2]);
-        const indice = Number(partes[3]);
+        // ---------------------------------------------
+        // GERAÇÃO PELO LINK
+        // ---------------------------------------------
 
         if (
-            pagina !== pesquisa.pagina ||
-            !Number.isInteger(indice) ||
-            indice < 0 ||
-            indice >= pesquisa.produtos.length
+            estado.modo !==
+            "aguardandoLink"
         ) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Este resultado não está mais ativo. Faça uma nova pesquisa.",
-                    show_alert: true
-                }
-            );
-
             return;
         }
 
         if (
-            pesquisa.carregando ||
-            pesquisa.gerandoArte
+            !texto.startsWith("https://") &&
+            !texto.startsWith("http://")
         ) {
-            await bot.answerCallbackQuery(
-                consulta.id,
-                {
-                    text: "Aguarde a operação atual terminar."
-                }
+            await bot.sendMessage(
+                chatId,
+                "❌ Envie um link válido da Shopee."
             );
 
             return;
         }
 
-        const produto = pesquisa.produtos[indice];
+        estado.modo =
+            "processandoLink";
 
-        pesquisa.gerandoArte = true;
-
-        await bot.answerCallbackQuery(
-            consulta.id,
-            {
-                text: "🎨 Preparando sua arte!"
-            }
-        );
+        let mensagemProcessando;
 
         try {
+            mensagemProcessando =
+                await bot.sendMessage(
+                    chatId,
+                    "🔄 Buscando informações do produto..."
+                );
+
+            const produto =
+                await obterProdutoShopee(
+                    texto,
+                    APP_ID,
+                    APP_SECRET
+                );
+
+            await apagarMensagem(
+                chatId,
+                mensagemProcessando
+            );
+
+            mensagemProcessando = null;
+
             await enviarArte(
                 chatId,
                 produto
             );
+
+        } catch (erro) {
+            console.error(
+                "Erro ao buscar produto pelo link:",
+                erro
+            );
+
+            await apagarMensagem(
+                chatId,
+                mensagemProcessando
+            );
+
+            await bot.sendMessage(
+                chatId,
+                "❌ Ocorreu um erro ao buscar o produto.\n\nVerifique se o link é válido e tente novamente."
+            );
+
         } finally {
-            pesquisa.gerandoArte = false;
+            if (
+                usuarios.get(chatId) ===
+                estado
+            ) {
+                usuarios.delete(
+                    chatId
+                );
+            }
         }
-
-        return;
     }
+);
 
-    await bot.answerCallbackQuery(
-        consulta.id,
-        {
-            text: "Ação desconhecida."
-        }
-    );
-});
+// =====================================================
+// TRATAMENTO DE ERROS
+// =====================================================
 
-bot.on("polling_error", (erro) => {
-    console.error(
-        "Polling Error:",
-        erro.message
-    );
-});
+bot.on(
+    "polling_error",
+    erro => {
+        console.error(
+            "Polling Error:",
+            erro.message
+        );
+    }
+);
 
-process.on("unhandledRejection", (erro) => {
-    console.error(
-        "Unhandled Rejection:",
-        erro
-    );
-});
+process.on(
+    "unhandledRejection",
+    erro => {
+        console.error(
+            "Unhandled Rejection:",
+            erro
+        );
+    }
+);
 
-process.on("uncaughtException", (erro) => {
-    console.error(
-        "Uncaught Exception:",
-        erro
-    );
-});
+process.on(
+    "uncaughtException",
+    erro => {
+        console.error(
+            "Uncaught Exception:",
+            erro
+        );
+    }
+);
 
-console.log("========================================");
-console.log("🤖 Divulgador Inteligente Bot");
-console.log("========================================");
-console.log("✅ Bot do Telegram iniciado.");
-console.log("✅ API Oficial da Shopee configurada.");
-console.log("✅ Pesquisa de produtos habilitada.");
-console.log("✅ Canvas carregado.");
-console.log("✅ Servidor Express iniciado.");
-console.log("========================================");
+// =====================================================
+// INICIAR SERVIDOR
+// =====================================================
+
+app.listen(
+    PORT,
+    () => {
+        console.log(
+            "========================================"
+        );
+
+        console.log(
+            "🤖 Divulgador Inteligente Bot"
+        );
+
+        console.log(
+            "========================================"
+        );
+
+        console.log(
+            `✅ Servidor iniciado na porta ${PORT}`
+        );
+
+        console.log(
+            "✅ Telegram Bot iniciado."
+        );
+
+        console.log(
+            "✅ API Oficial da Shopee configurada."
+        );
+
+        console.log(
+            "✅ Telegram Mini App habilitado."
+        );
+
+        console.log(
+            "✅ Vitrine com rolagem infinita."
+        );
+
+        console.log(
+            "========================================"
+        );
+    }
+);

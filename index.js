@@ -51,18 +51,82 @@ function criarIdPesquisa() {
     return (proximoIdPesquisa++).toString(36);
 }
 
-function formatarLegendaProduto(produto) {
+function montarLegendaCarrossel(pesquisa) {
+    const produto = pesquisa.produtos[pesquisa.indice];
+
+    const termo = String(pesquisa.termo || "")
+        .slice(0, 80);
+
     const titulo = String(produto.titulo || "Produto")
-        .slice(0, 650);
+        .slice(0, 500);
 
     const loja = String(produto.loja || "Não informada")
         .slice(0, 100);
 
     return (
+        `🛍️ Resultados para: ${termo}\n` +
+        `📄 Produto ${pesquisa.indice + 1} de ${pesquisa.produtos.length} • Página ${pesquisa.pagina}\n\n` +
         `📦 ${titulo}\n\n` +
         `💰 ${produto.preco}\n` +
         `🏪 ${loja}`
-    );
+    ).slice(0, 1024);
+}
+
+function montarBotoesCarrossel(pesquisa) {
+    const { id, pagina, indice, produtos } = pesquisa;
+
+    const teclado = [
+        [
+            {
+                text: "🎨 Selecionar produto",
+                callback_data: `produto:${id}:${pagina}:${indice}`
+            }
+        ]
+    ];
+
+    const linhaProdutos = [];
+
+    if (indice > 0) {
+        linhaProdutos.push({
+            text: "⬅️ Anterior",
+            callback_data: `nav:${id}:${pagina}:${indice - 1}`
+        });
+    }
+
+    if (indice < produtos.length - 1) {
+        linhaProdutos.push({
+            text: "Próximo ➡️",
+            callback_data: `nav:${id}:${pagina}:${indice + 1}`
+        });
+    }
+
+    if (linhaProdutos.length > 0) {
+        teclado.push(linhaProdutos);
+    }
+
+    const linhaPaginas = [];
+
+    if (pagina > 1) {
+        linhaPaginas.push({
+            text: "📄 Página anterior",
+            callback_data: `pagina:${id}:${pagina - 1}`
+        });
+    }
+
+    if (pesquisa.temProximaPagina) {
+        linhaPaginas.push({
+            text: "📄 Próxima página",
+            callback_data: `pagina:${id}:${pagina + 1}`
+        });
+    }
+
+    if (linhaPaginas.length > 0) {
+        teclado.push(linhaPaginas);
+    }
+
+    return {
+        inline_keyboard: teclado
+    };
 }
 
 async function apagarMensagem(chatId, mensagem) {
@@ -74,6 +138,96 @@ async function apagarMensagem(chatId, mensagem) {
             mensagem.message_id
         );
     } catch (_) {}
+}
+
+async function exibirProduto(chatId, pesquisa) {
+    const produto = pesquisa.produtos[pesquisa.indice];
+    const legenda = montarLegendaCarrossel(pesquisa);
+    const botoes = montarBotoesCarrossel(pesquisa);
+
+    if (
+        pesquisa.mensagemId &&
+        pesquisa.mensagemTipo === "foto"
+    ) {
+        try {
+            await bot.editMessageMedia(
+                {
+                    type: "photo",
+                    media: produto.imagem,
+                    caption: legenda
+                },
+                {
+                    chat_id: chatId,
+                    message_id: pesquisa.mensagemId
+                }
+            );
+
+            await bot.editMessageReplyMarkup(
+                botoes,
+                {
+                    chat_id: chatId,
+                    message_id: pesquisa.mensagemId
+                }
+            );
+
+            return;
+
+        } catch (erro) {
+            if (
+                String(erro.message)
+                    .includes("message is not modified")
+            ) {
+                return;
+            }
+
+            console.error(
+                "Erro ao editar o carrossel:",
+                erro.message
+            );
+        }
+    }
+
+    if (pesquisa.mensagemId) {
+        try {
+            await bot.deleteMessage(
+                chatId,
+                pesquisa.mensagemId
+            );
+        } catch (_) {}
+
+        pesquisa.mensagemId = null;
+    }
+
+    try {
+        const enviada = await bot.sendPhoto(
+            chatId,
+            produto.imagem,
+            {
+                caption: legenda,
+                reply_markup: botoes
+            }
+        );
+
+        pesquisa.mensagemId = enviada.message_id;
+        pesquisa.mensagemTipo = "foto";
+
+    } catch (erroFoto) {
+        console.error(
+            "Erro ao enviar foto do produto:",
+            erroFoto.message
+        );
+
+        const enviada = await bot.sendMessage(
+            chatId,
+            legenda,
+            {
+                reply_markup: botoes
+            }
+        );
+
+        pesquisa.mensagemId = enviada.message_id;
+        pesquisa.mensagemTipo = "texto";
+    }
 }
 
 async function enviarArte(chatId, produto) {
@@ -139,10 +293,12 @@ async function mostrarPagina(chatId, pesquisa, pagina) {
     let mensagemProcessando;
 
     try {
-        mensagemProcessando = await bot.sendMessage(
-            chatId,
-            `🔎 Buscando produtos...\n\n📄 Página ${pagina}`
-        );
+        if (!pesquisa.mensagemId) {
+            mensagemProcessando = await bot.sendMessage(
+                chatId,
+                `🔎 Buscando produtos...\n\n📄 Página ${pagina}`
+            );
+        }
 
         const resultado = await pesquisarProdutosShopee(
             pesquisa.termo,
@@ -163,11 +319,6 @@ async function mostrarPagina(chatId, pesquisa, pagina) {
 
         const produtos = resultado.produtos;
 
-        pesquisa.produtos = produtos;
-        pesquisa.pagina = resultado.pageInfo.page;
-        pesquisa.temProximaPagina =
-            resultado.pageInfo.hasNextPage;
-
         await apagarMensagem(
             chatId,
             mensagemProcessando
@@ -178,103 +329,22 @@ async function mostrarPagina(chatId, pesquisa, pagina) {
         if (produtos.length === 0) {
             await bot.sendMessage(
                 chatId,
-                "😕 Nenhum produto encontrado nesta página.\n\nTente outra pesquisa ou volte para a página anterior."
-            );
-        } else {
-            await bot.sendMessage(
-                chatId,
-                `🛍️ Resultados para: ${pesquisa.termo}\n\n📄 Página ${pesquisa.pagina}`
+                "😕 Nenhum produto encontrado nesta página.\n\nTente outra pesquisa com /pesquisar."
             );
 
-            for (
-                let indice = 0;
-                indice < produtos.length;
-                indice++
-            ) {
-                if (usuarios.get(chatId) !== pesquisa) {
-                    return;
-                }
-
-                const produto = produtos[indice];
-
-                const botoes = {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: "🎨 Selecionar produto",
-                                callback_data:
-                                    `produto:${pesquisa.id}:${pesquisa.pagina}:${indice}`
-                            }
-                        ]
-                    ]
-                };
-
-                try {
-                    await bot.sendPhoto(
-                        chatId,
-                        produto.imagem,
-                        {
-                            caption:
-                                formatarLegendaProduto(produto),
-
-                            reply_markup: botoes
-                        }
-                    );
-                } catch (erroFoto) {
-                    console.error(
-                        "Erro ao enviar foto do produto:",
-                        erroFoto.message
-                    );
-
-                    await bot.sendMessage(
-                        chatId,
-                        formatarLegendaProduto(produto),
-                        {
-                            reply_markup: botoes
-                        }
-                    );
-                }
-            }
-        }
-
-        if (usuarios.get(chatId) !== pesquisa) {
             return;
         }
 
-        const navegacao = [];
+        pesquisa.produtos = produtos;
+        pesquisa.pagina = resultado.pageInfo.page;
+        pesquisa.temProximaPagina =
+            resultado.pageInfo.hasNextPage;
+        pesquisa.indice = 0;
 
-        if (pesquisa.pagina > 1) {
-            navegacao.push({
-                text: "⬅️ Anterior",
-                callback_data:
-                    `pagina:${pesquisa.id}:${pesquisa.pagina - 1}`
-            });
-        }
-
-        if (pesquisa.temProximaPagina) {
-            navegacao.push({
-                text: "Próxima ➡️",
-                callback_data:
-                    `pagina:${pesquisa.id}:${pesquisa.pagina + 1}`
-            });
-        }
-
-        if (navegacao.length > 0) {
-            await bot.sendMessage(
-                chatId,
-                `📄 Página ${pesquisa.pagina}\nEscolha um produto ou navegue pelos resultados.`,
-                {
-                    reply_markup: {
-                        inline_keyboard: [navegacao]
-                    }
-                }
-            );
-        } else {
-            await bot.sendMessage(
-                chatId,
-                "✅ Você chegou ao final dos resultados desta pesquisa."
-            );
-        }
+        await exibirProduto(
+            chatId,
+            pesquisa
+        );
 
     } catch (erro) {
         console.error(
@@ -380,10 +450,13 @@ bot.on("message", async (msg) => {
             id: criarIdPesquisa(),
             termo: texto,
             pagina: 1,
+            indice: 0,
             produtos: [],
             temProximaPagina: false,
             carregando: false,
-            gerandoArte: false
+            gerandoArte: false,
+            mensagemId: null,
+            mensagemTipo: null
         };
 
         usuarios.set(chatId, pesquisa);
@@ -492,6 +565,61 @@ bot.on("callback_query", async (consulta) => {
                 show_alert: true
             }
         );
+
+        return;
+    }
+
+    if (acao === "nav") {
+        const pagina = Number(partes[2]);
+        const indice = Number(partes[3]);
+
+        if (
+            pagina !== pesquisa.pagina ||
+            !Number.isInteger(indice) ||
+            indice < 0 ||
+            indice >= pesquisa.produtos.length
+        ) {
+            await bot.answerCallbackQuery(
+                consulta.id,
+                {
+                    text: "Este resultado não está mais ativo. Faça uma nova pesquisa.",
+                    show_alert: true
+                }
+            );
+
+            return;
+        }
+
+        if (pesquisa.carregando) {
+            await bot.answerCallbackQuery(
+                consulta.id,
+                {
+                    text: "Aguarde um instante."
+                }
+            );
+
+            return;
+        }
+
+        await bot.answerCallbackQuery(consulta.id);
+
+        pesquisa.carregando = true;
+
+        try {
+            pesquisa.indice = indice;
+
+            await exibirProduto(
+                chatId,
+                pesquisa
+            );
+        } catch (erro) {
+            console.error(
+                "Erro ao navegar entre produtos:",
+                erro
+            );
+        } finally {
+            pesquisa.carregando = false;
+        }
 
         return;
     }

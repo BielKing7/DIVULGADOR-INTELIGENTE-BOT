@@ -290,6 +290,7 @@ async function pesquisarProdutosShopee(
         {
             productOfferV2(
                 keyword: ${keyword},
+                sortType: 1,
                 page: ${page},
                 limit: ${limit}
             ) {

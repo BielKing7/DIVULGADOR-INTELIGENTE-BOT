@@ -43,7 +43,7 @@ app.use(express.json({
 }));
 
 app.use(
-    express.static("public")
+    express.static("Public")
 );
 
 app.get("/", (req, res) => {

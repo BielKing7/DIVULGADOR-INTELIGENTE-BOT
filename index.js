@@ -51,25 +51,27 @@ function criarIdPesquisa() {
     return (proximoIdPesquisa++).toString(36);
 }
 
+function escaparHtml(texto) {
+    return String(texto)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
 function montarLegendaCarrossel(pesquisa) {
     const produto = pesquisa.produtos[pesquisa.indice];
 
-    const termo = String(pesquisa.termo || "")
-        .slice(0, 80);
+    const titulo = escaparHtml(
+        String(produto.titulo || "Produto").slice(0, 500)
+    );
 
-    const titulo = String(produto.titulo || "Produto")
-        .slice(0, 500);
-
-    const loja = String(produto.loja || "Não informada")
-        .slice(0, 100);
+    const preco = escaparHtml(produto.preco);
 
     return (
-        `🛍️ Resultados para: ${termo}\n` +
-        `📄 Produto ${pesquisa.indice + 1} de ${pesquisa.produtos.length} • Página ${pesquisa.pagina}\n\n` +
-        `📦 ${titulo}\n\n` +
-        `💰 ${produto.preco}\n` +
-        `🏪 ${loja}`
-    ).slice(0, 1024);
+        `<i>Produto ${pesquisa.indice + 1} de ${pesquisa.produtos.length} • Página ${pesquisa.pagina}</i>\n\n` +
+        `<b>${titulo}</b>\n\n` +
+        `<b>${preco}</b>`
+    );
 }
 
 function montarBotoesCarrossel(pesquisa) {
@@ -79,30 +81,25 @@ function montarBotoesCarrossel(pesquisa) {
         [
             {
                 text: "🎨 Selecionar produto",
-                callback_data: `produto:${id}:${pagina}:${indice}`
+                callback_data: `produto:${id}:${pagina}:${indice}`,
+                style: "success"
+            }
+        ],
+        [
+            {
+                text: "⬅️ Anterior",
+                callback_data: indice > 0
+                    ? `nav:${id}:${pagina}:${indice - 1}`
+                    : `limite:${id}:primeiro`
+            },
+            {
+                text: "Próximo ➡️",
+                callback_data: indice < produtos.length - 1
+                    ? `nav:${id}:${pagina}:${indice + 1}`
+                    : `limite:${id}:ultimo`
             }
         ]
     ];
-
-    const linhaProdutos = [];
-
-    if (indice > 0) {
-        linhaProdutos.push({
-            text: "⬅️ Anterior",
-            callback_data: `nav:${id}:${pagina}:${indice - 1}`
-        });
-    }
-
-    if (indice < produtos.length - 1) {
-        linhaProdutos.push({
-            text: "Próximo ➡️",
-            callback_data: `nav:${id}:${pagina}:${indice + 1}`
-        });
-    }
-
-    if (linhaProdutos.length > 0) {
-        teclado.push(linhaProdutos);
-    }
 
     const linhaPaginas = [];
 
@@ -154,7 +151,8 @@ async function exibirProduto(chatId, pesquisa) {
                 {
                     type: "photo",
                     media: produto.imagem,
-                    caption: legenda
+                    caption: legenda,
+                    parse_mode: "HTML"
                 },
                 {
                     chat_id: chatId,
@@ -204,6 +202,7 @@ async function exibirProduto(chatId, pesquisa) {
             produto.imagem,
             {
                 caption: legenda,
+                parse_mode: "HTML",
                 reply_markup: botoes
             }
         );
@@ -221,6 +220,7 @@ async function exibirProduto(chatId, pesquisa) {
             chatId,
             legenda,
             {
+                parse_mode: "HTML",
                 reply_markup: botoes
             }
         );
@@ -341,6 +341,18 @@ async function mostrarPagina(chatId, pesquisa, pagina) {
             resultado.pageInfo.hasNextPage;
         pesquisa.indice = 0;
 
+        if (!pesquisa.cabecalhoEnviado) {
+            await bot.sendMessage(
+                chatId,
+                `🛍️ <b>Resultados para ${escaparHtml(pesquisa.termo.slice(0, 80))}</b>`,
+                {
+                    parse_mode: "HTML"
+                }
+            );
+
+            pesquisa.cabecalhoEnviado = true;
+        }
+
         await exibirProduto(
             chatId,
             pesquisa
@@ -455,6 +467,7 @@ bot.on("message", async (msg) => {
             temProximaPagina: false,
             carregando: false,
             gerandoArte: false,
+            cabecalhoEnviado: false,
             mensagemId: null,
             mensagemTipo: null
         };
@@ -563,6 +576,21 @@ bot.on("callback_query", async (consulta) => {
             {
                 text: "Esta pesquisa expirou. Digite /pesquisar novamente.",
                 show_alert: true
+            }
+        );
+
+        return;
+    }
+
+    if (acao === "limite") {
+        const textoAviso = partes[2] === "primeiro"
+            ? "Este é o primeiro produto desta página."
+            : "Este é o último produto desta página. Use 📄 Próxima página para ver mais.";
+
+        await bot.answerCallbackQuery(
+            consulta.id,
+            {
+                text: textoAviso
             }
         );
 

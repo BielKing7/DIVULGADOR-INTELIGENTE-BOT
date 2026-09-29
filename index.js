@@ -4,6 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
+const fs = require("fs");
 const TelegramBot = require("node-telegram-bot-api");
 
 const {
@@ -14,9 +15,15 @@ const {
 
 const { gerarArte } = require("./canvas");
 
+// =====================================================
+// CONFIGURAÇÕES
+// =====================================================
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const APP_ID = process.env.SHOPEE_APP_ID;
 const APP_SECRET = process.env.SHOPEE_SECRET;
+
+const PORT = Number(process.env.PORT || 3000);
 
 const MINI_APP_URL =
     "https://divulgador-inteligente-bot.onrender.com/vitrine.html";
@@ -33,26 +40,75 @@ if (!APP_SECRET) {
     throw new Error("SHOPEE_SECRET não configurado.");
 }
 
+if (
+    !Number.isInteger(PORT) ||
+    PORT < 1 ||
+    PORT > 65535
+) {
+    throw new Error("PORT inválida.");
+}
+
+// O Telegram será iniciado depois do servidor HTTP.
+
 const bot = new TelegramBot(BOT_TOKEN, {
-    polling: true
+    polling: false
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(express.json({
     limit: "16kb"
 }));
 
-app.use(
-    express.static(
-        path.join(__dirname, "Public")
-    )
+// =====================================================
+// PASTA PUBLIC COM P MAIÚSCULO
+// =====================================================
+
+const PASTA_PUBLIC = path.join(
+    __dirname,
+    "Public"
 );
 
+const ARQUIVO_VITRINE = path.join(
+    PASTA_PUBLIC,
+    "vitrine.html"
+);
+
+if (fs.existsSync(ARQUIVO_VITRINE)) {
+    console.log(
+        "✅ Arquivo Public/vitrine.html encontrado."
+    );
+} else {
+    console.warn(
+        "⚠️ Public/vitrine.html não encontrado."
+    );
+}
+
+app.use(
+    express.static(PASTA_PUBLIC)
+);
+
+// =====================================================
+// ROTAS DE VERIFICAÇÃO
+// =====================================================
+
 app.get("/", (req, res) => {
-    res.send("🤖 Divulgador Inteligente Bot Online!");
+    res.status(200).send(
+        "🤖 Divulgador Inteligente Bot Online!"
+    );
 });
+
+app.get("/health", (req, res) => {
+    res.status(200).json({
+        status: "online",
+        servico: "Divulgador Inteligente Bot",
+        vitrine: fs.existsSync(ARQUIVO_VITRINE)
+    });
+});
+
+// =====================================================
+// CONTROLE DOS USUÁRIOS
+// =====================================================
 
 const usuarios = new Map();
 const artesEmAndamento = new Set();
@@ -62,8 +118,9 @@ const artesEmAndamento = new Set();
 // =====================================================
 
 function autenticarMiniApp(req, res, next) {
-    const initData =
-        req.get("X-Telegram-Init-Data");
+    const initData = req.get(
+        "X-Telegram-Init-Data"
+    );
 
     if (!initData) {
         return res.status(401).json({
@@ -72,11 +129,13 @@ function autenticarMiniApp(req, res, next) {
     }
 
     try {
-        const parametros =
-            new URLSearchParams(initData);
+        const parametros = new URLSearchParams(
+            initData
+        );
 
-        const hashRecebido =
-            parametros.get("hash");
+        const hashRecebido = parametros.get(
+            "hash"
+        );
 
         if (
             !hashRecebido ||
@@ -112,8 +171,10 @@ function autenticarMiniApp(req, res, next) {
             .update(dataCheckString)
             .digest();
 
-        const hashInformado =
-            Buffer.from(hashRecebido, "hex");
+        const hashInformado = Buffer.from(
+            hashRecebido,
+            "hex"
+        );
 
         if (
             hashInformado.length !==
@@ -135,8 +196,9 @@ function autenticarMiniApp(req, res, next) {
             parametros.get("auth_date")
         );
 
-        const agora =
-            Math.floor(Date.now() / 1000);
+        const agora = Math.floor(
+            Date.now() / 1000
+        );
 
         if (
             !Number.isFinite(authDate) ||
@@ -180,14 +242,18 @@ function autenticarMiniApp(req, res, next) {
 // =====================================================
 
 async function apagarMensagem(chatId, mensagem) {
-    if (!mensagem) return;
+    if (!mensagem) {
+        return;
+    }
 
     try {
         await bot.deleteMessage(
             chatId,
             mensagem.message_id
         );
-    } catch (_) {}
+    } catch (_) {
+        // A mensagem pode já ter sido apagada.
+    }
 }
 
 function criarLegendaArte(produto) {
@@ -207,11 +273,10 @@ async function enviarArte(chatId, produto) {
     let mensagemProcessando;
 
     try {
-        mensagemProcessando =
-            await bot.sendMessage(
-                chatId,
-                "🎨 Gerando a arte do produto..."
-            );
+        mensagemProcessando = await bot.sendMessage(
+            chatId,
+            "🎨 Gerando a arte do produto..."
+        );
 
         const imagem = await gerarArte(produto);
 
@@ -239,10 +304,17 @@ async function enviarArte(chatId, produto) {
             mensagemProcessando
         );
 
-        await bot.sendMessage(
-            chatId,
-            "❌ Não foi possível gerar a arte. Tente novamente."
-        );
+        try {
+            await bot.sendMessage(
+                chatId,
+                "❌ Não foi possível gerar a arte. Tente novamente."
+            );
+        } catch (erroTelegram) {
+            console.error(
+                "Erro ao enviar aviso sobre a arte:",
+                erroTelegram.message
+            );
+        }
     }
 }
 
@@ -250,7 +322,10 @@ function criarUrlVitrine(termo = "") {
     const url = new URL(MINI_APP_URL);
 
     if (termo) {
-        url.searchParams.set("termo", termo);
+        url.searchParams.set(
+            "termo",
+            termo
+        );
     }
 
     return url.toString();
@@ -261,8 +336,13 @@ async function enviarBotaoVitrine(
     termo = ""
 ) {
     const texto = termo
-        ? `🛍️ Sua pesquisa: ${termo}\n\nToque no botão abaixo para visualizar os produtos.`
-        : "🛍️ Abra a vitrine para pesquisar produtos da Shopee.";
+        ? (
+            `🛍️ Sua pesquisa: ${termo}\n\n` +
+            "Toque no botão abaixo para visualizar os produtos."
+        )
+        : (
+            "🛍️ Abra a vitrine para explorar produtos da Shopee."
+        );
 
     await bot.sendMessage(
         chatId,
@@ -285,7 +365,7 @@ async function enviarBotaoVitrine(
 }
 
 // =====================================================
-// VALIDAR FILTROS DA PESQUISA
+// VALIDAR FILTROS
 // =====================================================
 
 function lerPreco(valor, nome) {
@@ -312,8 +392,9 @@ function lerPreco(valor, nome) {
 }
 
 function obterOpcoesPesquisa(query) {
-    const ordenacao =
-        String(query.ordenacao || "relevancia");
+    const ordenacao = String(
+        query.ordenacao || "relevancia"
+    );
 
     if (
         !Object.prototype.hasOwnProperty.call(
@@ -346,8 +427,9 @@ function obterOpcoesPesquisa(query) {
         );
     }
 
-    const valorOficiais =
-        String(query.somenteOficiais || "false");
+    const valorOficiais = String(
+        query.somenteOficiais || "false"
+    );
 
     if (
         valorOficiais !== "true" &&
@@ -375,14 +457,17 @@ app.get(
     "/api/produtos",
     autenticarMiniApp,
     async (req, res) => {
-        const termo =
-            String(req.query.termo || "").trim();
+        const termo = String(
+            req.query.termo || ""
+        ).trim();
 
-        const page =
-            Number(req.query.page || 1);
+        const page = Number(
+            req.query.page || 1
+        );
 
-        const limit =
-            Number(req.query.limit || 20);
+        const limit = Number(
+            req.query.limit || 20
+        );
 
         if (
             !termo ||
@@ -400,8 +485,7 @@ app.get(
             page > 1000
         ) {
             return res.status(400).json({
-                erro:
-                    "Número de página inválido."
+                erro: "Número de página inválido."
             });
         }
 
@@ -422,7 +506,6 @@ app.get(
             opcoes = obterOpcoesPesquisa(
                 req.query
             );
-
         } catch (erro) {
             return res.status(400).json({
                 erro: erro.message
@@ -441,15 +524,9 @@ app.get(
                 );
 
             return res.json({
-                produtos:
-                    resultado.produtos,
-
-                pageInfo:
-                    resultado.pageInfo,
-
-                ordenacao:
-                    resultado.ordenacao,
-
+                produtos: resultado.produtos,
+                pageInfo: resultado.pageInfo,
+                ordenacao: resultado.ordenacao,
                 filtros: opcoes
             });
 
@@ -475,14 +552,15 @@ app.post(
     "/api/gerar-arte",
     autenticarMiniApp,
     async (req, res) => {
-        const chatId =
-            req.usuarioTelegram.id;
+        const chatId = req.usuarioTelegram.id;
 
-        const shopId =
-            String(req.body?.shopId || "");
+        const shopId = String(
+            req.body?.shopId || ""
+        );
 
-        const itemId =
-            String(req.body?.itemId || "");
+        const itemId = String(
+            req.body?.itemId || ""
+        );
 
         if (
             !/^\d{1,20}$/.test(shopId) ||
@@ -543,7 +621,7 @@ app.post(
             } catch (erroTelegram) {
                 console.error(
                     "Erro ao enviar aviso:",
-                    erroTelegram
+                    erroTelegram.message
                 );
             }
 
@@ -654,7 +732,9 @@ bot.on(
     async (msg) => {
         const chatId = msg.chat.id;
 
-        if (!msg.text) return;
+        if (!msg.text) {
+            return;
+        }
 
         if (
             msg.text.startsWith("/")
@@ -662,13 +742,13 @@ bot.on(
             return;
         }
 
-        const estado =
-            usuarios.get(chatId);
+        const estado = usuarios.get(chatId);
 
-        if (!estado) return;
+        if (!estado) {
+            return;
+        }
 
-        const texto =
-            msg.text.trim();
+        const texto = msg.text.trim();
 
         // PESQUISA PELO NOME
 
@@ -781,9 +861,19 @@ bot.on(
 
 bot.on(
     "polling_error",
-    erro => {
+    (erro) => {
         console.error(
-            "Polling Error:",
+            "❌ Polling Error:",
+            erro.message
+        );
+    }
+);
+
+bot.on(
+    "error",
+    (erro) => {
+        console.error(
+            "❌ Telegram Bot Error:",
             erro.message
         );
     }
@@ -791,9 +881,9 @@ bot.on(
 
 process.on(
     "unhandledRejection",
-    erro => {
+    (erro) => {
         console.error(
-            "Unhandled Rejection:",
+            "❌ Unhandled Rejection:",
             erro
         );
     }
@@ -801,20 +891,51 @@ process.on(
 
 process.on(
     "uncaughtException",
-    erro => {
+    (erro) => {
         console.error(
-            "Uncaught Exception:",
+            "❌ Uncaught Exception:",
             erro
         );
+
+        process.exit(1);
     }
 );
 
 // =====================================================
-// INICIAR SERVIDOR
+// INICIAR POLLING DO TELEGRAM
 // =====================================================
 
-app.listen(
+async function iniciarTelegram() {
+    try {
+        console.log(
+            "🔄 Iniciando polling do Telegram..."
+        );
+
+        await bot.startPolling();
+
+        console.log(
+            "✅ Polling do Telegram iniciado."
+        );
+
+    } catch (erro) {
+        console.error(
+            "❌ Falha ao iniciar o Telegram:",
+            erro
+        );
+    }
+}
+
+// =====================================================
+// INICIAR SERVIDOR HTTP
+// =====================================================
+
+console.log(
+    "🔎 Chegou à inicialização do servidor HTTP."
+);
+
+const servidor = app.listen(
     PORT,
+    "0.0.0.0",
     () => {
         console.log(
             "========================================"
@@ -829,27 +950,43 @@ app.listen(
         );
 
         console.log(
-            `✅ Servidor iniciado na porta ${PORT}`
+            `✅ Servidor HTTP iniciado na porta ${PORT}`
         );
 
         console.log(
-            "✅ Telegram Bot iniciado."
+            "🌐 Servidor escutando em 0.0.0.0"
         );
 
         console.log(
-            "✅ API Oficial da Shopee configurada."
+            fs.existsSync(ARQUIVO_VITRINE)
+                ? "✅ Mini App: Public/vitrine.html encontrado."
+                : "⚠️ Mini App: Public/vitrine.html não encontrado."
         );
 
         console.log(
-            "✅ Telegram Mini App habilitado."
+            "✅ API da Shopee configurada."
         );
 
         console.log(
-            "✅ API de ordenação e filtros configurada."
+            "✅ Rotas de pesquisa e filtros registradas."
         );
 
         console.log(
             "========================================"
         );
+
+        iniciarTelegram();
+    }
+);
+
+servidor.on(
+    "error",
+    (erro) => {
+        console.error(
+            "❌ Erro ao abrir a porta HTTP:",
+            erro
+        );
+
+        process.exit(1);
     }
 );
